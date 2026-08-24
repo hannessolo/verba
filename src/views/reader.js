@@ -61,6 +61,9 @@ function stageCounts(book) {
 }
 
 export function renderReader(view, book) {
+  // touch devices (phones/tablets): popup becomes a bottom sheet and stage
+  // actions close it, so learning a word is a fast tap-tap loop
+  const isTouch = matchMedia('(hover: none) and (pointer: coarse)').matches;
   const dictPromise = loadDict(book.language);
   view.innerHTML = `
     <div class="reader-layout">
@@ -79,7 +82,7 @@ export function renderReader(view, book) {
           <div class="muted small">of unique words known</div>
           <ul id="stage-legend" class="stage-legend"></ul>
         </div>
-        <div class="side-card">
+        <div class="side-card side-help">
           <h3>How it works</h3>
           <p class="muted small">
             Click any highlighted word to see its translation and set its stage.
@@ -97,6 +100,7 @@ export function renderReader(view, book) {
         </div>
       </aside>
       <main class="text-col">
+        <p class="mobile-hint">Tap a highlighted word to see its translation and set its stage.</p>
         <div class="pager">
           <button class="btn ghost" id="page-prev">← Prev</button>
           <span id="page-label" class="muted small">…</span>
@@ -290,14 +294,16 @@ export function renderReader(view, book) {
     openPopup(el, r.left + r.width / 2, r.bottom);
   }
 
-  reading.addEventListener('click', (e) => {
-    const w = e.target.closest('.w');
-    if (!w) {
-      closePopup();
-      return;
-    }
-    openPopup(w, e.clientX, e.clientY);
-  });
+  // one global click handler: a word opens its popup, anything else closes it
+  // (works with taps on mobile too, including taps on the sidebar/header)
+  const onDocClick = (e) => {
+    const t = e.target instanceof Element ? e.target : null;
+    if (popup && t && t.closest('.word-popup')) return; // popup handles its own clicks
+    const w = t && t.closest('.w');
+    if (w) openPopup(w, e.clientX, e.clientY);
+    else closePopup();
+  };
+  document.addEventListener('click', onDocClick);
 
   function openPopup(el, x, y) {
     closePopup();
@@ -332,17 +338,28 @@ export function renderReader(view, book) {
       </div>
       <div class="wp-keys">0–4 stage · ⏎ advance · u back · n next word · i ignore · esc close</div>`;
     document.body.appendChild(popup);
+    popupOpenWidth = innerWidth;
 
-    // position near click, clamped to viewport
-    const r = popup.getBoundingClientRect();
-    let px = x + 12;
-    let py = y + 12;
-    if (px + r.width > innerWidth - 12) px = x - r.width - 12;
-    if (py + r.height > innerHeight - 12) py = innerHeight - r.height - 12;
-    if (px < 12) px = 12;
-    if (py < 12) py = 12;
-    popup.style.left = px + 'px';
-    popup.style.top = py + 'px';
+    // narrow screens: render as a bottom sheet anchored to the screen bottom
+    const sheet = matchMedia('(max-width: 700px)').matches;
+    popup.classList.toggle('wp-sheet', sheet);
+    if (sheet) {
+      // if the tapped word ends up behind the sheet, scroll it into view
+      const wr = el.getBoundingClientRect();
+      const sheetTop = innerHeight - Math.min(innerHeight * 0.75, 540);
+      if (wr.bottom > sheetTop + 16) window.scrollBy(0, wr.bottom - sheetTop + 16);
+    } else {
+      // position near click, clamped to viewport
+      const r = popup.getBoundingClientRect();
+      let px = x + 12;
+      let py = y + 12;
+      if (px + r.width > innerWidth - 12) px = x - r.width - 12;
+      if (py + r.height > innerHeight - 12) py = innerHeight - r.height - 12;
+      if (px < 12) px = 12;
+      if (py < 12) py = 12;
+      popup.style.left = px + 'px';
+      popup.style.top = py + 'px';
+    }
 
     // clip long glosses with a show-more toggle (matches .wp-gloss.clipped max-height)
     const glossEl = popup.querySelector('.wp-gloss');
@@ -364,8 +381,12 @@ export function renderReader(view, book) {
     popup.querySelector('#wp-advance').addEventListener('click', () => {
       const s = getStage(current.dataset.w);
       applyStage(s === IGNORE_STAGE ? 0 : Math.min(4, s + 1));
+      if (isTouch) closePopup(); // fast tap loop: advance, then tap the next word
     });
-    popup.querySelector('#wp-ignore').addEventListener('click', () => applyStage(IGNORE_STAGE));
+    popup.querySelector('#wp-ignore').addEventListener('click', () => {
+      applyStage(IGNORE_STAGE);
+      if (isTouch) closePopup();
+    });
     popup.querySelector('#wp-close').addEventListener('click', closePopup);
     syncPopupUI(stage);
   }
@@ -418,12 +439,19 @@ export function renderReader(view, book) {
     else if (e.key === 'ArrowLeft' && pageIndex > 0) gotoPage(pageIndex - 1);
   };
   document.addEventListener('keydown', onKey);
-  window.addEventListener('resize', closePopup);
+  // close the floating popup on real width changes (orientation), but not on
+  // mobile browser address-bar show/hide, which only changes the height
+  let popupOpenWidth = 0;
+  const onResize = () => {
+    if (popup && Math.abs(innerWidth - popupOpenWidth) > 2) closePopup();
+  };
+  window.addEventListener('resize', onResize);
 
   return () => {
     closePopup();
     document.removeEventListener('keydown', onKey);
-    window.removeEventListener('resize', closePopup);
+    document.removeEventListener('click', onDocClick);
+    window.removeEventListener('resize', onResize);
   };
 
   // ---- helpers ----
