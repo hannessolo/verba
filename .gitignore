@@ -12,3 +12,5 @@ dicts/*.tsv
 .DS_Store
 *.local
 *.log
+
+todo-list.md
