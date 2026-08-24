@@ -267,12 +267,12 @@ export function renderReader(view, book) {
     renderCurrentPage();
   }
 
-  function gotoPage(i, smooth) {
+  function gotoPage(i, smooth = false, scroll = true) {
     pageIndex = i;
     renderCurrentPage();
     closePopup();
     savePagePosition(book.id, pageIndex);
-    scrollToText(smooth);
+    if (scroll) scrollToText(smooth);
   }
 
   // restore last position for this book
@@ -307,8 +307,8 @@ export function renderReader(view, book) {
     }
   });
 
-  prevBtn.addEventListener('click', () => gotoPage(pageIndex - 1));
-  nextBtn.addEventListener('click', () => gotoPage(pageIndex + 1));
+  prevBtn.addEventListener('click', () => gotoPage(pageIndex - 1, false, false));
+  nextBtn.addEventListener('click', () => gotoPage(pageIndex + 1, false, false));
   // bottom button: advance and scroll the top of the text back into view, so
   // on mobile you never have to scroll past the whole sidebar again
   nextBottomBtn.addEventListener('click', () => gotoPage(pageIndex + 1, true));
