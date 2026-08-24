@@ -30,3 +30,13 @@ function render() {
 
 window.addEventListener('hashchange', render);
 render();
+
+// PWA: register the service worker for offline use. A relative path so it
+// works from any mount point, in particular the GitHub Pages subpath.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch((e) => {
+      console.warn('service worker registration failed', e);
+    });
+  });
+}
