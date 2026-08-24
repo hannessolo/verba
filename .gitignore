@@ -1,0 +1,14 @@
+# dependencies
+node_modules
+
+# build output
+dist
+
+# raw dictionary sources (the compiled src/dict/*.js is committed instead;
+# re-download from the sources in README.md if you need to rebuild)
+dicts/*.tsv
+
+# misc
+.DS_Store
+*.local
+*.log

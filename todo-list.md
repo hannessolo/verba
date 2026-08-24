@@ -1,0 +1,9 @@
+- [x] add an ignore word button, so we can ignore words like names that we don't want to learn
+- [x] in spanish the word estantes only shows up as an adjective, when really it is a nound meaning "shelves" too. Check whether the dictionary also contains the noun or not. If it does, make sure all variants of each word are shown
+- [x] Remove all references to "lingq", we shoudl come up with our own app name. (named it "verba")
+- Add a github actions workflow that builds the app, so that we can deploy it on github pages. Ask the user to create a git repo and push it there. Validate the github pages deployment worked.
+- Make sure all interactions work well on mobile devices
+- [x] Make keybaord navigation better. I want to be able to progress the words to the next stage through the keyboard.
+- Add external link out to google translate UI in a new tab from dictionary popup
+- Add PWA support for offline use and storage
+- Add support for joining words into context - eg. in spanish "A través" has a joint meaning in the dictionary. If it comes up in context, the user should be able to highlight both and get a joint translation, and then have these words appear as one in future occurences. 
