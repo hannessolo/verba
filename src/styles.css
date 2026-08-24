@@ -9,7 +9,7 @@
   --st0: #ff9d9d;
   --st1: #ffc37a;
   --st2: #ffec70;
-  --st3: #bce4a8;
+  --st3: transparent;
   --st4: transparent;
 }
 
@@ -340,7 +340,7 @@ select {
 .w.st4 { background: var(--st4); }
 .w.st5 { background: var(--st4); }
 /* ignored words keep a faint dotted underline so they stay findable */
-.w.st5 {
+.w.st3 {
   text-decoration: underline dotted rgba(0, 0, 0, 0.28);
   text-underline-offset: 3px;
 }
