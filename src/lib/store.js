@@ -13,6 +13,7 @@ const BOOKS_KEY = 'verba/books/v1';
 const STAGES_KEY = 'verba/stages/v1';
 const PAGES_KEY = 'verba/pages/v1';
 const SETTINGS_KEY = 'verba/settings/v1';
+const TRANS_KEY = 'verba/translations/v1';
 
 function read(key, fallback) {
   try {
@@ -27,6 +28,8 @@ function read(key, fallback) {
 export const store = {
   books: read(BOOKS_KEY, []),
   stages: read(STAGES_KEY, {}),
+  // word key -> array of user-added translation strings
+  translations: read(TRANS_KEY, {}),
 };
 
 export const settings = read(SETTINGS_KEY, { pageSize: 400 });
@@ -112,6 +115,42 @@ export function setStage(word, stage) {
   saveStages();
 }
 
+// ---- custom translations (user-added meanings, global per word) ----
+
+export function saveTranslations() {
+  try {
+    localStorage.setItem(TRANS_KEY, JSON.stringify(store.translations));
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+export function getCustomTranslations(word) {
+  const t = store.translations[word];
+  return Array.isArray(t) ? t : [];
+}
+
+// Adds a translation unless it's empty or a duplicate (case-insensitive).
+// Returns true when a translation was actually added.
+export function addCustomTranslation(word, text) {
+  text = String(text || '').trim().replace(/\s+/g, ' ');
+  if (!text) return false;
+  const list = store.translations[word] || (store.translations[word] = []);
+  if (list.some((t) => t.toLowerCase() === text.toLowerCase())) return false;
+  list.push(text);
+  saveTranslations();
+  return true;
+}
+
+export function removeCustomTranslation(word, index) {
+  const list = store.translations[word];
+  if (!Array.isArray(list) || !Number.isInteger(index) || index < 0 || index >= list.length) return;
+  list.splice(index, 1);
+  if (list.length) store.translations[word] = list;
+  else delete store.translations[word];
+  saveTranslations();
+}
+
 // ---- export / import ----
 
 // Serialize everything: books, word stages, reading positions, settings.
@@ -122,6 +161,7 @@ export function exportSnapshot() {
     exportedAt: new Date().toISOString(),
     books: store.books,
     stages: store.stages,
+    translations: store.translations,
     pages: pagePositions,
     settings: { ...settings },
   };
@@ -134,6 +174,8 @@ export function exportSnapshot() {
 //  - word stages: the later stage wins via Math.max; since IGNORE_STAGE is
 //    5 (higher than any learning stage), a word ignored on either side stays
 //    ignored, otherwise the more advanced learning stage wins.
+//  - custom translations: union of both lists (case-insensitive dedupe),
+//    import order first, then any local-only translations.
 // Settings are exported but not applied on import (they are a local UI
 // preference, not learning progress).
 export function mergeImport(data) {
@@ -141,7 +183,7 @@ export function mergeImport(data) {
     throw new Error('Not a valid data file.');
   }
   const pages = data.pages && typeof data.pages === 'object' ? data.pages : {};
-  const stats = { booksAdded: 0, pagesMerged: 0, wordsAdvanced: 0 };
+  const stats = { booksAdded: 0, pagesMerged: 0, wordsAdvanced: 0, translationsAdded: 0 };
 
   if (Array.isArray(data.books)) {
     let booksChanged = false;
@@ -174,6 +216,32 @@ export function mergeImport(data) {
       }
     }
     if (stats.wordsAdvanced) saveStages();
+  }
+
+  if (data.translations && typeof data.translations === 'object' && !Array.isArray(data.translations)) {
+    let transChanged = false;
+    for (const [word, list] of Object.entries(data.translations)) {
+      if (!Array.isArray(list)) continue;
+      const clean = list
+        .filter((t) => typeof t === 'string' && t.trim())
+        .map((t) => t.trim().replace(/\s+/g, ' '));
+      const local = store.translations[word] || [];
+      // union, case-insensitive: import order first, then local-only entries
+      const seen = new Set();
+      const merged = [];
+      for (const t of [...clean, ...local]) {
+        const k = t.toLowerCase();
+        if (seen.has(k)) continue;
+        seen.add(k);
+        merged.push(t);
+      }
+      if (merged.length !== local.length) {
+        store.translations[word] = merged;
+        stats.translationsAdded += merged.length - local.length;
+        transChanged = true;
+      }
+    }
+    if (transChanged) saveTranslations();
   }
 
   return stats;

@@ -414,6 +414,44 @@ select {
   text-transform: lowercase;
 }
 .wp-gloss.missing { color: var(--muted); font-style: italic; }
+/* user-added translations — always fully visible, below the (clippable) gloss */
+.wp-customs { margin-top: 8px; font-size: 14px; line-height: 1.5; }
+.wp-customs[hidden] { display: none; }
+.wp-custom-head {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  color: var(--accent);
+  margin-bottom: 2px;
+}
+.wp-custom-row { display: flex; align-items: baseline; gap: 8px; }
+.wp-custom-del {
+  margin-left: auto;
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 4px;
+}
+.wp-custom-del:hover { color: #c0392b; background: #fbeeed; }
+/* inline "add translation" form */
+.wp-trans-form { display: flex; gap: 8px; margin-top: 10px; }
+.wp-trans-form[hidden] { display: none; }
+.wp-trans-form input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 14px;
+  background: #fff;
+  color: var(--ink);
+}
+.wp-trans-form input:focus { outline: 1.5px solid var(--accent); border-color: transparent; }
 .wp-stages { display: flex; gap: 8px; margin-top: 14px; }
 .wp-stage {
   width: 34px;
@@ -432,7 +470,7 @@ select {
   box-shadow: 0 0 0 2.5px var(--accent);
 }
 .wp-stage-label { margin-top: 8px; }
-.wp-actions { display: flex; gap: 8px; margin-top: 12px; }
+.wp-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .wp-keys {
   margin-top: 10px;
   padding-top: 8px;
@@ -467,4 +505,5 @@ select {
 /* bigger finger targets + no keyboard hints inside the sheet */
 .wp-sheet .wp-stage { width: 44px; height: 44px; }
 .wp-sheet .wp-actions .btn { min-height: 44px; }
+.wp-sheet .wp-trans-form input { min-height: 44px; }
 .wp-sheet .wp-keys { display: none; }

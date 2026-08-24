@@ -35,5 +35,6 @@ export function importSummary(stats) {
   if (stats.booksAdded) parts.push(`${stats.booksAdded} new book${stats.booksAdded === 1 ? '' : 's'} added`);
   if (stats.pagesMerged) parts.push(`${stats.pagesMerged} reading position${stats.pagesMerged === 1 ? '' : 's'} updated`);
   if (stats.wordsAdvanced) parts.push(`${stats.wordsAdvanced} word${stats.wordsAdvanced === 1 ? '' : 's'} advanced`);
+  if (stats.translationsAdded) parts.push(`${stats.translationsAdded} new translation${stats.translationsAdded === 1 ? '' : 's'} added`);
   return parts.length ? `Import complete — ${parts.join(', ')}.` : 'Import complete — nothing new to import.';
 }

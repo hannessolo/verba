@@ -5,6 +5,9 @@ import {
   saveSettings,
   getPagePosition,
   savePagePosition,
+  getCustomTranslations,
+  addCustomTranslation,
+  removeCustomTranslation,
   IGNORE_STAGE,
 } from '../lib/store.js';
 import { loadDict, translate } from '../lib/dict.js';
@@ -19,13 +22,13 @@ const POS_LABELS =
   'noun|verb|adj|name|adv|phrase|intj|proverb|prep|prep_phrase|num|pron|conj|character|det|abbrev|particle|article|symbol|punct';
 
 /**
- * Render a gloss with each part of speech on its own line, e.g.
- * "adj: sweet; gentle\nnoun: sweetness; dessert".
+ * Inner HTML for a dictionary gloss with each part of speech on its own
+ * line, e.g. "adj: sweet; gentle\nnoun: sweetness; dessert".
  */
-function glossHtml(gloss) {
+function glossLines(gloss) {
   const parts = gloss.split(new RegExp('; (?=(?:' + POS_LABELS + '):)'));
   const re = new RegExp('^(' + POS_LABELS + '): (.*)$', 's');
-  const html = parts
+  return parts
     .map((p) => {
       const m = p.match(re);
       return m
@@ -33,7 +36,33 @@ function glossHtml(gloss) {
         : esc(p);
     })
     .join('<br>');
-  return `<div class="wp-gloss">${html}</div>`;
+}
+
+/**
+ * Dictionary gloss block for the popup (clippable when long).
+ */
+function glossBlockHtml(result, dictLoaded) {
+  const missingClass = !result ? ' missing' : '';
+  const inner = result
+    ? glossLines(result.gloss)
+    : dictLoaded
+      ? 'Not in the offline dictionary'
+      : 'Dictionary not loaded yet';
+  return `<div class="wp-gloss${missingClass}" id="wp-gloss">${inner}</div>`;
+}
+
+/**
+ * User-added translations block. Kept separate from the dictionary gloss so
+ * it is always fully visible (never clipped), each entry removable.
+ */
+function customsBlockHtml(key) {
+  const customs = getCustomTranslations(key);
+  if (!customs.length) return `<div class="wp-customs" id="wp-customs" hidden></div>`;
+  let inner = `<div class="wp-custom-head">＋ your translations</div>`;
+  customs.forEach((t, i) => {
+    inner += `<div class="wp-custom-row"><span>${esc(t)}</span><button class="wp-custom-del" data-i="${i}" type="button" title="Remove this translation">✕</button></div>`;
+  });
+  return `<div class="wp-customs" id="wp-customs">${inner}</div>`;
 }
 const LANG_NAMES = { it: 'Italian', es: 'Spanish' };
 
@@ -93,10 +122,16 @@ export function renderReader(view, book) {
             your progress and can be un-ignored later.
           </p>
           <p class="muted small">
+            The dictionary is a starting point — if it's wrong or missing a
+            meaning you need, use <b>＋ Add translation</b> to attach your own.
+            It's saved with the word everywhere it appears.
+          </p>
+          <p class="muted small">
             <b>Keyboard:</b> <b>⏎</b> opens the next word to learn. With a word
             open: <b>0–4</b> sets the stage, <b>⏎</b> advances, <b>u</b> goes
             back, <b>n</b> jumps to the next word, <b>i</b> ignores,
-            <b>t</b> opens Google Translate, <b>esc</b> closes.
+            <b>t</b> opens Google Translate, <b>a</b> adds a translation,
+            <b>esc</b> closes.
           </p>
         </div>
       </aside>
@@ -355,7 +390,14 @@ export function renderReader(view, book) {
   // (works with taps on mobile too, including taps on the sidebar/header)
   const onDocClick = (e) => {
     const t = e.target instanceof Element ? e.target : null;
-    if (popup && t && t.closest('.word-popup')) return; // popup handles its own clicks
+    // the click's target can be detached mid-dispatch when our own handlers
+    // re-render its ancestors (deleting a custom translation re-renders the
+    // gloss block, which contains the delete button) — closest() walks the
+    // live tree and would miss the popup then, so also check the composed
+    // path, which is fixed at dispatch time
+    const inPopup =
+      !!popup && !!t && (t.closest('.word-popup') || e.composedPath().includes(popup));
+    if (inPopup) return; // popup handles its own clicks
     const w = t && t.closest('.w');
     if (w) openPopup(w, e.clientX, e.clientY);
     else closePopup();
@@ -379,11 +421,13 @@ export function renderReader(view, book) {
         </span>
         <a class="wp-gt" id="wp-gt" href="${gtUrl}" target="_blank" rel="noopener" title="Open in Google Translate">translate ↗</a>
       </div>
-      ${
-        result
-          ? glossHtml(result.gloss)
-          : `<div class="wp-gloss missing">${dict ? 'Not in the offline dictionary' : 'Dictionary not loaded yet'}</div>`
-      }
+      ${glossBlockHtml(result, !!dict)}
+      <button class="wp-more" id="wp-more" type="button" hidden>Show more…</button>
+      ${customsBlockHtml(key)}
+      <form class="wp-trans-form" id="wp-trans-form" hidden>
+        <input type="text" id="wp-trans-input" placeholder="Add your own translation…" autocomplete="off" />
+        <button class="btn primary" type="submit">Add</button>
+      </form>
       <div class="wp-stages">
         ${[0, 1, 2, 3, 4]
           .map(
@@ -395,9 +439,10 @@ export function renderReader(view, book) {
       <div class="wp-actions">
         <button class="btn primary" id="wp-advance">${stage === IGNORE_STAGE ? 'Un-ignore' : stage < 4 ? `Learn → stage ${stage + 1}` : 'Known ✓'}</button>
         <button class="btn ghost" id="wp-ignore"${stage === IGNORE_STAGE ? ' style="display:none"' : ''}>${stage === IGNORE_STAGE ? '' : 'Ignore word'}</button>
+        <button class="btn ghost" id="wp-add-trans">＋ Add translation</button>
         <button class="btn ghost" id="wp-close">Close (Esc)</button>
       </div>
-      <div class="wp-keys">0–4 stage · ⏎ advance · u back · n next · i ignore · t translate · esc close</div>`;
+      <div class="wp-keys">0–4 stage · ⏎ advance · u back · n next · i ignore · t translate · a add trans · esc close</div>`;
     document.body.appendChild(popup);
     popupOpenWidth = innerWidth;
 
@@ -423,18 +468,65 @@ export function renderReader(view, book) {
     }
 
     // clip long glosses with a show-more toggle (matches .wp-gloss.clipped max-height)
-    const glossEl = popup.querySelector('.wp-gloss');
-    if (glossEl && !glossEl.classList.contains('missing') && glossEl.scrollHeight > 86) {
-      glossEl.classList.add('clipped');
-      const more = document.createElement('button');
-      more.className = 'wp-more';
-      more.textContent = 'Show more…';
-      more.addEventListener('click', () => {
-        const clipped = glossEl.classList.toggle('clipped');
-        more.textContent = clipped ? 'Show more…' : 'Show less';
-      });
-      popup.insertBefore(more, popup.querySelector('.wp-stages'));
+    function applyGlossClipping() {
+      const g = popup.querySelector('#wp-gloss');
+      const more = popup.querySelector('#wp-more');
+      const tooTall = !g.classList.contains('missing') && g.scrollHeight > 86;
+      g.classList.toggle('clipped', tooTall);
+      more.hidden = !tooTall;
+      more.textContent = tooTall ? 'Show more…' : 'Show less';
     }
+    popup.querySelector('#wp-more').addEventListener('click', () => {
+      const g = popup.querySelector('#wp-gloss');
+      const clipped = g.classList.toggle('clipped');
+      popup.querySelector('#wp-more').textContent = clipped ? 'Show more…' : 'Show less';
+    });
+
+    // re-render the gloss + custom-translation blocks. Called on open (to
+    // bind the delete handlers) and after a translation is added/removed.
+    function refreshGlossArea() {
+      if (!popup || !current) return;
+      const wrap = document.createElement('div');
+      wrap.innerHTML =
+        glossBlockHtml(dict ? translate(dict, current.textContent) : null, !!dict) +
+        customsBlockHtml(current.dataset.w);
+      const old = popup.querySelector('#wp-gloss');
+      const oldCustoms = popup.querySelector('#wp-customs');
+      if (old) old.replaceWith(wrap.children[0], wrap.children[1]);
+      if (oldCustoms) oldCustoms.remove(); // stale block from a previous render
+      for (const b of popup.querySelectorAll('#wp-customs .wp-custom-del')) {
+        b.addEventListener('click', () => {
+          removeCustomTranslation(current.dataset.w, +b.dataset.i);
+          refreshGlossArea();
+        });
+      }
+      applyGlossClipping();
+    }
+    refreshGlossArea();
+
+    // "add translation": inline form; on touch it closes after adding (fast tap loop)
+    const transForm = popup.querySelector('#wp-trans-form');
+    const transInput = popup.querySelector('#wp-trans-input');
+    popup.querySelector('#wp-add-trans').addEventListener('click', () => {
+      transForm.hidden = !transForm.hidden;
+      if (!transForm.hidden) transInput.focus();
+    });
+    transForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (!current) return;
+      if (addCustomTranslation(current.dataset.w, transInput.value)) {
+        transInput.value = '';
+        refreshGlossArea();
+        if (isTouch) {
+          transForm.hidden = true;
+          transInput.blur();
+        } else {
+          transInput.focus(); // keep the form open for adding several
+        }
+      } else {
+        transInput.select(); // empty or duplicate: keep focus for a retry
+      }
+    });
 
     for (const b of popup.querySelectorAll('.wp-stage')) {
       b.addEventListener('click', () => applyStage(+b.dataset.s));
@@ -485,6 +577,12 @@ export function renderReader(view, book) {
       }
       if (e.key === 't' || e.key === 'T') {
         popup.querySelector('#wp-gt').click(); // opens Google Translate in a new tab
+        return;
+      }
+      if (e.key === 'a' || e.key === 'A') {
+        const f = popup.querySelector('#wp-trans-form');
+        f.hidden = false;
+        popup.querySelector('#wp-trans-input').focus();
         return;
       }
       if (e.key === 'i' || e.key === 'I') {
