@@ -95,7 +95,7 @@ export function renderReader(view, book) {
             <b>Keyboard:</b> <b>⏎</b> opens the next word to learn. With a word
             open: <b>0–4</b> sets the stage, <b>⏎</b> advances, <b>u</b> goes
             back, <b>n</b> jumps to the next word, <b>i</b> ignores,
-            <b>esc</b> closes.
+            <b>t</b> opens Google Translate, <b>esc</b> closes.
           </p>
         </div>
       </aside>
@@ -311,12 +311,16 @@ export function renderReader(view, book) {
     const key = el.dataset.w;
     const stage = getStage(key);
     const result = dict ? translate(dict, el.textContent) : null;
+    const gtUrl = `https://translate.google.com/?sl=${encodeURIComponent(book.language)}&tl=en&text=${encodeURIComponent(el.textContent)}&op=translate`;
 
     popup = document.createElement('div');
     popup.className = 'word-popup';
     popup.innerHTML = `
-      <div class="wp-word">${esc(el.textContent)}
-        ${result && result.stem ? `<span class="wp-stem">← ${esc(result.stem)}</span>` : ''}
+      <div class="wp-word">
+        <span>${esc(el.textContent)}
+          ${result && result.stem ? `<span class="wp-stem">← ${esc(result.stem)}</span>` : ''}
+        </span>
+        <a class="wp-gt" id="wp-gt" href="${gtUrl}" target="_blank" rel="noopener" title="Open in Google Translate">translate ↗</a>
       </div>
       ${
         result
@@ -336,7 +340,7 @@ export function renderReader(view, book) {
         <button class="btn ghost" id="wp-ignore"${stage === IGNORE_STAGE ? ' style="display:none"' : ''}>${stage === IGNORE_STAGE ? '' : 'Ignore word'}</button>
         <button class="btn ghost" id="wp-close">Close (Esc)</button>
       </div>
-      <div class="wp-keys">0–4 stage · ⏎ advance · u back · n next word · i ignore · esc close</div>`;
+      <div class="wp-keys">0–4 stage · ⏎ advance · u back · n next · i ignore · t translate · esc close</div>`;
     document.body.appendChild(popup);
     popupOpenWidth = innerWidth;
 
@@ -420,6 +424,10 @@ export function renderReader(view, book) {
       if ((e.key === 'n' || e.key === 'N') && !onButton) {
         const nx = nextWordToLearn();
         if (nx && nx !== current) openWordAt(nx);
+        return;
+      }
+      if (e.key === 't' || e.key === 'T') {
+        popup.querySelector('#wp-gt').click(); // opens Google Translate in a new tab
         return;
       }
       if (e.key === 'i' || e.key === 'I') {
