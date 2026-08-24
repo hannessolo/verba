@@ -116,6 +116,9 @@ export function renderReader(view, book) {
           </select>
         </div>
         <div id="reading" class="reading"></div>
+        <div class="pager-bottom" id="pager-bottom">
+          <button class="btn primary" id="page-next-bottom">Next page ↓</button>
+        </div>
       </main>
     </div>`;
 
@@ -123,6 +126,8 @@ export function renderReader(view, book) {
   const pageLabel = view.querySelector('#page-label');
   const prevBtn = view.querySelector('#page-prev');
   const nextBtn = view.querySelector('#page-next');
+  const pagerBottom = view.querySelector('#pager-bottom');
+  const nextBottomBtn = view.querySelector('#page-next-bottom');
   const sizeSelect = view.querySelector('#page-size');
   let dict = null;
 
@@ -190,7 +195,29 @@ export function renderReader(view, book) {
         ? `1 page · continuous`
         : `Page ${pageIndex + 1} of ${pages.length}`;
     prevBtn.disabled = pageIndex === 0;
-    nextBtn.disabled = pageIndex === pages.length - 1;
+    const isLastPage = pageIndex === pages.length - 1;
+    nextBtn.disabled = isLastPage;
+    // bottom "next page" button (mobile only): shown while a next page exists
+    pagerBottom.classList.toggle('hidden', pageSize === 0 || isLastPage);
+  }
+
+  // scroll so the top of the reading text is in view, i.e. just below the
+  // sticky app header — on mobile this also scrolls past the sidebar cards.
+  // Desktop keeps the old scroll-to-window-top behaviour (pager row stays
+  // visible just below the header there).
+  function scrollToText(smooth) {
+    const behavior = smooth ? 'smooth' : 'auto';
+    if (!matchMedia('(max-width: 820px)').matches) {
+      window.scrollTo({ top: 0, behavior });
+      return;
+    }
+    const header = document.querySelector('.app-header');
+    const y =
+      reading.getBoundingClientRect().top +
+      window.scrollY -
+      (header ? header.offsetHeight : 0) -
+      10;
+    window.scrollTo({ top: Math.max(0, y), behavior });
   }
 
   // rebuild pages, keeping roughly the same relative position
@@ -201,12 +228,12 @@ export function renderReader(view, book) {
     renderCurrentPage();
   }
 
-  function gotoPage(i) {
+  function gotoPage(i, smooth) {
     pageIndex = i;
     renderCurrentPage();
     closePopup();
     savePagePosition(book.id, pageIndex);
-    window.scrollTo({ top: 0 });
+    scrollToText(smooth);
   }
 
   // restore last position for this book
@@ -220,13 +247,16 @@ export function renderReader(view, book) {
 
   prevBtn.addEventListener('click', () => gotoPage(pageIndex - 1));
   nextBtn.addEventListener('click', () => gotoPage(pageIndex + 1));
+  // bottom button: advance and scroll the top of the text back into view, so
+  // on mobile you never have to scroll past the whole sidebar again
+  nextBottomBtn.addEventListener('click', () => gotoPage(pageIndex + 1, true));
   sizeSelect.addEventListener('change', () => {
     pageSize = Number(sizeSelect.value);
     saveSettings({ pageSize });
     rebuildPages(); // keep roughly the same relative position
     closePopup();
     savePagePosition(book.id, pageIndex);
-    window.scrollTo({ top: 0 });
+    scrollToText();
   });
 
   // ---- word popup ----
