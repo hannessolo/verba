@@ -80,14 +80,18 @@ export function saveSettings(patch) {
   }
 }
 
-export function savePagePosition(bookId, pageIndex) {
-  if (pageIndex > 0) pagePositions[bookId] = pageIndex;
-  else delete pagePositions[bookId];
+function savePages() {
   try {
     localStorage.setItem(PAGES_KEY, JSON.stringify(pagePositions));
   } catch (e) {
     console.error(e);
   }
+}
+
+export function savePagePosition(bookId, pageIndex) {
+  if (pageIndex > 0) pagePositions[bookId] = pageIndex;
+  else delete pagePositions[bookId];
+  savePages();
 }
 
 export function getPagePosition(bookId) {
@@ -106,6 +110,73 @@ export function setStage(word, stage) {
   if (stage < 0 || stage > IGNORE_STAGE) stage = 0;
   store.stages[word] = stage;
   saveStages();
+}
+
+// ---- export / import ----
+
+// Serialize everything: books, word stages, reading positions, settings.
+export function exportSnapshot() {
+  return {
+    app: 'verba',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    books: store.books,
+    stages: store.stages,
+    pages: pagePositions,
+    settings: { ...settings },
+  };
+}
+
+// Merge an exported snapshot into the local data. Rules:
+//  - books: unknown ids are added (their id is preserved so page positions
+//    line up); existing ids keep the local book.
+//  - page positions: the later page wins (local vs import).
+//  - word stages: the later stage wins via Math.max; since IGNORE_STAGE is
+//    5 (higher than any learning stage), a word ignored on either side stays
+//    ignored, otherwise the more advanced learning stage wins.
+// Settings are exported but not applied on import (they are a local UI
+// preference, not learning progress).
+export function mergeImport(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error('Not a valid data file.');
+  }
+  const pages = data.pages && typeof data.pages === 'object' ? data.pages : {};
+  const stats = { booksAdded: 0, pagesMerged: 0, wordsAdvanced: 0 };
+
+  if (Array.isArray(data.books)) {
+    let booksChanged = false;
+    for (const b of data.books) {
+      if (!b || !b.id || !Array.isArray(b.chapters) || !b.chapters.length) continue;
+      if (!store.books.some((x) => x.id === b.id)) {
+        store.books.push({ ...b, addedAt: b.addedAt || Date.now() });
+        stats.booksAdded++;
+        booksChanged = true;
+      }
+      const importedPage = Math.max(0, Math.round(Number(pages[b.id]) || 0));
+      const localPage = Math.max(0, Math.round(Number(pagePositions[b.id]) || 0));
+      if (importedPage > localPage) {
+        pagePositions[b.id] = importedPage;
+        stats.pagesMerged++;
+      }
+    }
+    if (booksChanged) saveBooks();
+    if (stats.pagesMerged) savePages();
+  }
+
+  if (data.stages && typeof data.stages === 'object') {
+    for (const [word, stage] of Object.entries(data.stages)) {
+      const s = Math.round(Number(stage));
+      if (Number.isNaN(s) || s < 0 || s > IGNORE_STAGE) continue;
+      const local = store.stages[word] ?? 0;
+      if (s > local) {
+        store.stages[word] = s;
+        stats.wordsAdvanced++;
+      }
+    }
+    if (stats.wordsAdvanced) saveStages();
+  }
+
+  return stats;
 }
 
 // ---- book stats ----

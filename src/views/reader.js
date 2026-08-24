@@ -9,6 +9,7 @@ import {
 } from '../lib/store.js';
 import { loadDict, translate } from '../lib/dict.js';
 import { tokenize, wordKeysInText } from '../lib/text.js';
+import { downloadData, importFromFile, importSummary } from '../lib/transfer.js';
 
 const STAGE_NAMES = ['New', 'Saw it', 'Getting it', 'Almost known', 'Known'];
 const IGNORE_LABEL = 'Ignored';
@@ -114,6 +115,9 @@ export function renderReader(view, book) {
             <option value="1000">1000</option>
             <option value="0">Continuous</option>
           </select>
+          <button class="btn ghost" id="reader-export" title="Download all books, progress and learned words as a JSON file">⬇ Export</button>
+          <button class="btn ghost" id="reader-import" title="Merge a previously exported JSON file into this library">⬆ Import</button>
+          <input type="file" id="reader-import-input" accept=".json,application/json" hidden />
         </div>
         <div id="reading" class="reading"></div>
         <div class="pager-bottom" id="pager-bottom">
@@ -244,6 +248,29 @@ export function renderReader(view, book) {
     renderCurrentPage();
   }
   updateProgress(view, book);
+
+  // ---- export / import ----
+  view.querySelector('#reader-export').addEventListener('click', downloadData);
+  const importInput = view.querySelector('#reader-import-input');
+  view.querySelector('#reader-import').addEventListener('click', () => importInput.click());
+  importInput.addEventListener('change', async () => {
+    const file = importInput.files[0];
+    importInput.value = '';
+    if (!file) return;
+    try {
+      const stats = await importFromFile(file);
+      // stages/positions may have changed: refresh text, page and progress
+      pages = buildPages();
+      pageIndex = Math.min(pageIndex, Math.max(0, pages.length - 1));
+      renderCurrentPage();
+      closePopup();
+      updateProgress(view, book);
+      alert(importSummary(stats));
+    } catch (e) {
+      console.error(e);
+      alert(`Import failed: ${e.message}`);
+    }
+  });
 
   prevBtn.addEventListener('click', () => gotoPage(pageIndex - 1));
   nextBtn.addEventListener('click', () => gotoPage(pageIndex + 1));

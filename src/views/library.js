@@ -1,6 +1,7 @@
 import { store, addBook, removeBook, bookStats } from '../lib/store.js';
 import { parseEpub } from '../lib/epub.js';
 import { detectLanguage, toParagraphs } from '../lib/text.js';
+import { downloadData, importFromFile, importSummary } from '../lib/transfer.js';
 
 const LANG_NAMES = { it: 'Italian', es: 'Spanish' };
 
@@ -29,6 +30,12 @@ export function renderLibrary(view) {
           <button class="btn ghost" data-sample="decameron">Italiano · Decameron (Boccaccio)</button>
           <button class="btn ghost" data-sample="quijote">Español · Don Quijote (Cervantes)</button>
         </div>
+        <div class="data-row">
+          <span class="muted small">Your data:</span>
+          <button class="btn ghost" id="export-data" title="Download all books, progress and learned words as a JSON file">⬇ Export data</button>
+          <button class="btn ghost" id="import-data" title="Merge a previously exported JSON file into this library">⬆ Import data</button>
+          <input type="file" id="import-data-input" accept=".json,application/json" hidden />
+        </div>
       </div>
       <h2 class="books-title">Your library</h2>
       <div id="book-list" class="book-list"></div>
@@ -45,6 +52,25 @@ export function renderLibrary(view) {
       status.textContent = 'Importing…';
       const book = await importFile(file, view.querySelector('#lang-select').value);
       location.hash = `#/book/${book.id}`;
+    } catch (e) {
+      console.error(e);
+      status.textContent = `Import failed: ${e.message}`;
+    }
+  });
+
+  // ---- export / import ----
+  view.querySelector('#export-data').addEventListener('click', downloadData);
+  const importInput = view.querySelector('#import-data-input');
+  view.querySelector('#import-data').addEventListener('click', () => importInput.click());
+  importInput.addEventListener('change', async () => {
+    const file = importInput.files[0];
+    importInput.value = '';
+    if (!file) return;
+    try {
+      status.textContent = 'Importing data…';
+      const stats = await importFromFile(file);
+      status.textContent = importSummary(stats);
+      renderBookList(view);
     } catch (e) {
       console.error(e);
       status.textContent = `Import failed: ${e.message}`;
