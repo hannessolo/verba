@@ -532,3 +532,85 @@ button.wp-gt {
 .wp-sheet .wp-actions .btn { min-height: 44px; }
 .wp-sheet .wp-trans-form input { min-height: 44px; }
 .wp-sheet .wp-keys { display: none; }
+
+/* ---------- vocab view ---------- */
+.header-vocab {
+  font-size: 13px;
+  color: var(--muted);
+  text-decoration: none;
+}
+.header-vocab:hover { color: var(--accent); }
+
+.vocab { max-width: 860px; margin: 0 auto; padding: 28px 20px 80px; }
+.vocab-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.vocab-title { margin: 0; font-size: 22px; }
+.vocab-counts { font-size: 13px; }
+.vocab-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+.vocab-filter {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.vocab-filter:hover { border-color: var(--accent); color: var(--ink); }
+.vocab-filter.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.vocab-group {
+  margin: 22px 0 4px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.vocab-group-count { font-weight: 400; letter-spacing: 0; }
+.vocab-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+  padding: 10px 0;
+}
+.vocab-word { font-size: 15px; }
+.vocab-word.phrase { font-style: italic; }
+.vocab-row .dot { flex: none; width: 12px; height: 12px; }
+.vocab .dot.st0 { background: var(--st0); }
+.vocab .dot.st1 { background: var(--st1); }
+.vocab .dot.st2 { background: var(--st2); }
+.vocab .dot.st3 { background: #fff; }
+.vocab-gloss { margin-left: auto; color: var(--muted); font-size: 13px; text-align: right; }
+.vocab-custom { flex-basis: 100%; font-size: 12px; color: var(--muted); padding-left: 22px; }
+.vocab-custom .plus { color: var(--accent); }
+
+/* ---------- flashcards ---------- */
+.flashcards { max-width: 640px; margin: 0 auto; padding: 40px 20px 80px; }
+.fc-top { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }
+.fc-progress { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.fc-top .progress-bar { flex: 1; height: 4px; }
+.fc-card { text-align: center; }
+.fc-prompt {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 30px;
+  line-height: 1.4;
+  margin-bottom: 28px;
+  min-height: 42px;
+}
+.fc-answer { color: var(--accent); font-size: 22px; font-weight: 600; margin-bottom: 6px; }
+.fc-word { font-size: 13px; margin-bottom: 24px; }
+.fc-buttons { display: flex; gap: 12px; justify-content: center; }
+.fc-buttons .btn { flex: 1; min-height: 44px; padding: 10px 22px; font-size: 15px; }
+.fc-summary h2 { margin: 0 0 8px; font-size: 20px; }
+.fc-advanced { list-style: none; margin: 16px auto 24px; padding: 0; max-width: 320px; text-align: left; }
+.fc-advanced li { font-size: 14px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+
+@media (max-width: 560px) {
+  .vocab { padding: 20px 14px 60px; }
+  .vocab-gloss { margin-left: 0; flex-basis: 100%; text-align: left; }
+  .fc-buttons { flex-direction: column; }
+  .fc-buttons .btn { width: 100%; min-height: 48px; }
+  .fc-progress { font-size: 13px; }
+  .fc-prompt { font-size: 26px; }
+}

@@ -14,6 +14,7 @@ const STAGES_KEY = 'verba/stages/v1';
 const PAGES_KEY = 'verba/pages/v1';
 const SETTINGS_KEY = 'verba/settings/v1';
 const TRANS_KEY = 'verba/translations/v1';
+const SRS_KEY = 'verba/srs/v1';
 
 function read(key, fallback) {
   try {
@@ -30,6 +31,8 @@ export const store = {
   stages: read(STAGES_KEY, {}),
   // word key -> array of user-added translation strings
   translations: read(TRANS_KEY, {}),
+  // word key -> spaced-repetition state { step: 0-6, last: epochMs }
+  srs: read(SRS_KEY, {}),
 };
 
 export const settings = read(SETTINGS_KEY, { pageSize: 400 });
@@ -167,6 +170,31 @@ export function removeCustomTranslation(word, index) {
   saveTranslations();
 }
 
+// ---- srs (spaced repetition for flashcards) ----
+
+export function saveSrs() {
+  try {
+    localStorage.setItem(SRS_KEY, JSON.stringify(store.srs));
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+export function srsState(key) {
+  const s = store.srs[key];
+  return s && Number.isInteger(s.step) && s.step >= 0 && s.step <= 6 && Number.isFinite(s.last)
+    ? s
+    : null;
+}
+
+export function setSrs(key, step, last) {
+  store.srs[key] = {
+    step: Math.max(0, Math.min(6, Math.round(Number(step) || 0))),
+    last: Number(last),
+  };
+  saveSrs();
+}
+
 // ---- export / import ----
 
 // Serialize everything: books, word stages, reading positions, settings.
@@ -178,6 +206,7 @@ export function exportSnapshot() {
     books: store.books,
     stages: store.stages,
     translations: store.translations,
+    srs: store.srs,
     pages: pagePositions,
     settings: { ...settings },
   };
@@ -199,7 +228,7 @@ export function mergeImport(data) {
     throw new Error('Not a valid data file.');
   }
   const pages = data.pages && typeof data.pages === 'object' ? data.pages : {};
-  const stats = { booksAdded: 0, pagesMerged: 0, wordsAdvanced: 0, translationsAdded: 0 };
+  const stats = { booksAdded: 0, pagesMerged: 0, wordsAdvanced: 0, translationsAdded: 0, srsUpdated: 0 };
 
   if (Array.isArray(data.books)) {
     let booksChanged = false;
@@ -258,6 +287,30 @@ export function mergeImport(data) {
       }
     }
     if (transChanged) saveTranslations();
+  }
+
+  // srs: per-key merge — the higher step wins; on a tie the later `last`.
+  // Old snapshots without an srs block simply skip this.
+  if (data.srs && typeof data.srs === 'object' && !Array.isArray(data.srs)) {
+    let srsChanged = false;
+    for (const [word, entry] of Object.entries(data.srs)) {
+      if (!entry || typeof entry !== 'object') continue;
+      const step = Number(entry.step);
+      const last = Number(entry.last);
+      if (!Number.isInteger(step) || step < 0 || step > 6 || !Number.isFinite(last)) continue;
+      const local = store.srs[word];
+      const better =
+        !local ||
+        !Number.isInteger(local.step) ||
+        step > local.step ||
+        (step === local.step && last > local.last);
+      if (better) {
+        store.srs[word] = { step, last };
+        stats.srsUpdated++;
+        srsChanged = true;
+      }
+    }
+    if (srsChanged) saveSrs();
   }
 
   return stats;

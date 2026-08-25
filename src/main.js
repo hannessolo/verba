@@ -1,6 +1,7 @@
 import { getBook } from './lib/store.js';
 import { renderLibrary } from './views/library.js';
 import { renderReader } from './views/reader.js';
+import { renderVocab } from './views/vocab.js';
 import './styles.css';
 
 const app = document.getElementById('app');
@@ -9,6 +10,7 @@ function headerHtml() {
   return `<header class="app-header">
     <a class="logo" href="#">verba<span class="logo-dot">.</span></a>
     <span class="tagline">learn words while you read</span>
+    <a class="header-vocab" href="#/vocab">vocab</a>
     <span class="header-spacer"></span>
   </header>`;
 }
@@ -25,6 +27,7 @@ function render() {
   app.innerHTML = headerHtml() + '<div id="view"></div>';
   const view = document.getElementById('view');
   if (book) currentCleanup = renderReader(view, book);
+  else if (location.hash === '#/vocab') currentCleanup = renderVocab(view);
   else renderLibrary(view);
 }
 
