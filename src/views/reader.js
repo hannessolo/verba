@@ -486,6 +486,14 @@ export function renderReader(view, book) {
     return words.slice(lo, hi + 1);
   }
 
+  // the .w element immediately after el in the paragraph (words are flat
+  // children of .para, so a sibling walk is reading order)
+  function nextWordAfter(el) {
+    let n = el.nextElementSibling;
+    while (n && !n.classList.contains('w')) n = n.nextElementSibling;
+    return n;
+  }
+
   // add/remove the w-sel highlight for a list of word elements (null or a
   // single word clears — a one-word "span" is just a normal click)
   function setSelection(words) {
@@ -563,8 +571,8 @@ export function renderReader(view, book) {
             key: normalizePhraseKey(text),
             x: r.left + r.width / 2,
             y: r.bottom,
+            selEls: words,
           });
-          setSelection(words);
           return;
         }
       }
@@ -605,8 +613,8 @@ export function renderReader(view, book) {
         key: normalizePhraseKey(text),
         x: e.clientX,
         y: e.clientY,
+        selEls: words, // keep the span highlighted while the popup is open
       });
-      setSelection(words); // keep the span highlighted while the popup is open
     } else {
       setSelection(null);
     }
@@ -670,8 +678,8 @@ export function renderReader(view, book) {
         key: normalizePhraseKey(text),
         x: t.clientX,
         y: t.clientY,
+        selEls: words,
       });
-      setSelection(words);
     } else {
       // short drag or plain tap: clear highlight and let the synthesized
       // click/tap open the normal word popup
@@ -703,10 +711,11 @@ export function renderReader(view, book) {
   // phrase variant: dictionary lookup via translatePhrase, a "Seen ✓" primary
   // button (stage 0 → 1 is what merges the phrase into the text) and a merge
   // hint; single words get a "⤢ sentence" button instead.
-  function openPhrasePopup({ text, key, x, y, el = null }) {
+  function openPhrasePopup({ text, key, x, y, el = null, selEls = null }) {
     closePopup();
     current = { key, text, el };
     if (el) lastClickedWordEl = el;
+    if (selEls) setSelection(selEls); // keep the span highlighted while open
     const isPhrase = key.includes(' ');
     // sentences and spans that cross punctuation (comma, period, …) keep that
     // punctuation in their key, and tokenizeWithPhrases only merges runs of
@@ -714,6 +723,17 @@ export function renderReader(view, book) {
     // text. They are translate-only: keep the gloss + Google Translate link,
     // hide all stage/learning controls.
     const learnable = isLearnableKey(key);
+    // "next +" candidates: the word elements of this selection (the popup's
+    // own word for single-word popups, the highlighted span otherwise) and
+    // the word that follows them, so the button can extend the span in place
+    // without moving it. Capped like drag selections; hidden for
+    // translate-only spans (punctuation) since extending keeps them so.
+    const selWords = selEls || (el ? [el] : []);
+    const lastSel = selWords.length ? selWords[selWords.length - 1] : null;
+    const nextWordEl =
+      learnable && lastSel && selWords.length < MAX_SPAN_WORDS
+        ? nextWordAfter(lastSel)
+        : null;
     const stage = getStage(key);
     const result = dict
       ? isPhrase ? translatePhrase(dict, key) : translate(dict, text)
@@ -737,6 +757,7 @@ export function renderReader(view, book) {
         </span>
         <span class="wp-links">
           ${!isPhrase && el ? '<button class="wp-gt" id="wp-sentence" type="button" title="Translate the whole sentence in Google Translate">⤢ sentence</button>' : ''}
+          ${nextWordEl ? '<button class="wp-gt" id="wp-next-word" type="button" title="Add the next word to this selection">next +</button>' : ''}
           <a class="wp-gt" id="wp-gt" href="${gtUrl}" target="_blank" rel="noopener" title="Open in Google Translate">translate ↗</a>
         </span>
       </div>
@@ -885,6 +906,25 @@ export function renderReader(view, book) {
       });
     }
     popup.querySelector('#wp-close').addEventListener('click', closePopup);
+
+    // "next +": extend the current selection by the following word without
+    // moving it — the popup reopens on the extended span
+    const nextBtn = popup.querySelector('#wp-next-word');
+    if (nextBtn) {
+      nextBtn.addEventListener('click', () => {
+        const words = [...selWords, nextWordEl];
+        const text = spanText(words);
+        const r = nextWordEl.getBoundingClientRect();
+        lastClickedWordEl = nextWordEl; // shift+click anchors from the new end
+        openPhrasePopup({
+          text,
+          key: normalizePhraseKey(text),
+          x: r.left + r.width / 2,
+          y: r.bottom,
+          selEls: words,
+        });
+      });
+    }
 
     // "⤢ sentence": open the full sentence containing the word via the phrase
     // popup — in-context Google Translate, learned only if the user marks it seen
