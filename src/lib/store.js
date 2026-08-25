@@ -2,7 +2,7 @@
 // Two separate keys: books (potentially large) and word stages (touched on
 // every click, so kept small for fast saves).
 
-import { wordKeysInText } from './text.js';
+import { wordKeysInText, phraseOccurrences } from './text.js';
 
 // A word can be in one of the learning stages 0-4, or the special
 // "ignore" state. Ignored words (e.g. proper names you don't want to learn)
@@ -113,6 +113,22 @@ export function setStage(word, stage) {
   if (stage < 0 || stage > IGNORE_STAGE) stage = 0;
   store.stages[word] = stage;
   saveStages();
+}
+
+/**
+ * Stage keys that contain a space and have stage > 0 — i.e. phrases the user
+ * has marked seen (or ignored: IGNORE_STAGE also merges, just without
+ * highlight). Stage 0 = not saved / un-merged. Sorted by word count
+ * descending (longest first) so "a través de" beats "a través".
+ * Sentences marked seen are included too: they merge on exact re-occurrence.
+ */
+export function activePhrases() {
+  const out = [];
+  for (const [key, s] of Object.entries(store.stages)) {
+    if (key.includes(' ') && s > 0) out.push(key);
+  }
+  out.sort((a, b) => b.split(' ').length - a.split(' ').length);
+  return out;
 }
 
 // ---- custom translations (user-added meanings, global per word) ----
@@ -251,8 +267,13 @@ export function mergeImport(data) {
 
 export function uniqueWords(book) {
   const seen = new Set();
+  // active phrases are learned units too; only scan when any exist so the
+  // common path (no phrases saved yet) stays fast
+  const phrases = activePhrases();
   for (const ch of book.chapters) {
     for (const k of wordKeysInText(ch.text)) seen.add(k);
+    if (phrases.length)
+      for (const k of phraseOccurrences(ch.text, phrases)) seen.add(k);
   }
   return [...seen];
 }

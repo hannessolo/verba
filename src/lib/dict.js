@@ -83,3 +83,19 @@ export function translate(dict, raw) {
   }
   return null;
 }
+
+/**
+ * Translate a multi-word phrase. Exact key match only — suffix stripping is
+ * meaningless for phrases. Tries the normalized phrase, then the
+ * diacritic-stripped one (e.g. "a través de" -> "a traves de").
+ * Returns { gloss, stem } like translate().
+ */
+export function translatePhrase(dict, phrase) {
+  if (!dict) return null;
+  const w = phrase.toLowerCase().replace(/[’‘`]/g, "'");
+  for (const cand of [w, stripDiacritics(w)]) {
+    const g = exact(dict, cand);
+    if (g) return { gloss: g, stem: cand === w ? null : cand };
+  }
+  return null;
+}

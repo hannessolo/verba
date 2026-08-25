@@ -9,9 +9,10 @@ import {
   addCustomTranslation,
   removeCustomTranslation,
   IGNORE_STAGE,
+  activePhrases,
 } from '../lib/store.js';
-import { loadDict, translate } from '../lib/dict.js';
-import { tokenize, wordKeysInText } from '../lib/text.js';
+import { loadDict, translate, translatePhrase } from '../lib/dict.js';
+import { tokenizeWithPhrases, phraseOccurrences, wordKeysInText } from '../lib/text.js';
 import { downloadData, importFromFile, importSummary } from '../lib/transfer.js';
 
 const STAGE_NAMES = ['New', 'Saw it', 'Getting it', 'Almost known', 'Known'];
@@ -68,11 +69,39 @@ const LANG_NAMES = { it: 'Italian', es: 'Spanish' };
 
 let uniqueWordsCache = new Map(); // bookId -> [wordKeys]
 
+// phrase spans longer than this are capped (guard against accidental drags;
+// whole sentences are reached via the "⤢ sentence" button instead)
+const MAX_SPAN_WORDS = 15;
+// sentence terminators for the "⤢ sentence" extractor
+const SENT_END = /[.!?…]/;
+
+// phrase/sentence keys are normalized like word keys (lowercase, curly
+// apostrophes -> straight)
+function normalizePhraseKey(text) {
+  return text.toLowerCase().replace(/[’‘`]/g, "'");
+}
+
+// Whether a key can be learned/staged. Single words are always learnable
+// (even hyphenated ones like "día-a-día" — they are one token and never
+// cross a punctuation boundary). Multi-word phrases must contain only
+// letters/apostrophes/spaces: spans that cross a comma or period keep that
+// punctuation in the key, and tokenizeWithPhrases only merges runs of
+// single-space-separated words, so such keys could never merge into the text
+// — they are translate-only.
+function isLearnableKey(key) {
+  return !key.includes(' ') || /^[\p{L}' ]+$/u.test(key);
+}
+
 function uniqueWordsOf(book) {
   if (uniqueWordsCache.has(book.id)) return uniqueWordsCache.get(book.id);
   const seen = new Set();
+  // active phrases are learned units too; only scan when any exist so the
+  // common path stays fast
+  const phrases = activePhrases();
   for (const ch of book.chapters) {
     for (const k of wordKeysInText(ch.text)) seen.add(k);
+    if (phrases.length)
+      for (const k of phraseOccurrences(ch.text, phrases)) seen.add(k);
   }
   const words = [...seen];
   uniqueWordsCache.set(book.id, words);
@@ -125,6 +154,15 @@ export function renderReader(view, book) {
             The dictionary is a starting point — if it's wrong or missing a
             meaning you need, use <b>＋ Add translation</b> to attach your own.
             It's saved with the word everywhere it appears.
+          </p>
+          <p class="muted small">
+            <b>Phrases:</b> drag across several words (or tap and drag on
+            mobile, or shift-click a second word) to select a phrase like
+            <i>a través de</i> and get its joint translation. Mark it
+            <b>Seen</b> and it merges into the text as a single learned unit —
+            set its stage back to 0 to split it again. The <b>⤢ sentence</b>
+            button opens the whole sentence in Google Translate without
+            learning it.
           </p>
           <p class="muted small">
             <b>Keyboard:</b> <b>⏎</b> opens the next word to learn. With a word
@@ -181,6 +219,15 @@ export function renderReader(view, book) {
       view.querySelector('#dict-status').textContent =
         'Dictionary failed to load — translations unavailable.';
     });
+
+  // active phrases (stage keys with spaces, stage > 0), computed once per
+  // render pass and refreshed whenever a phrase's stage changes (which
+  // re-renders the page anyway) or on import
+  let activePhrasesCache = [];
+  function refreshActivePhrases() {
+    activePhrasesCache = activePhrases();
+  }
+  refreshActivePhrases();
 
   // ---- pagination ----
   let pageSize = settings.pageSize ?? 400;
@@ -295,6 +342,9 @@ export function renderReader(view, book) {
     try {
       const stats = await importFromFile(file);
       // stages/positions may have changed: refresh text, page and progress
+      // (imported stages may include phrases this book never had)
+      uniqueWordsCache.delete(book.id);
+      refreshActivePhrases();
       pages = buildPages();
       pageIndex = Math.min(pageIndex, Math.max(0, pages.length - 1));
       renderCurrentPage();
@@ -323,20 +373,34 @@ export function renderReader(view, book) {
 
   // ---- word popup ----
   let popup = null;
-  let current = null; // the .w element the popup is showing
+  // { key, text, el } of the word/phrase the popup is showing; el is null
+  // for drag-selected spans and sentence popups. key/text are copies, so the
+  // popup keeps working after a re-render detaches el.
+  let current = null;
   function closePopup() {
     if (popup) {
       popup.remove();
       popup = null;
     }
     current = null;
+    setSelection(null); // also clear any phrase drag-selection highlight
   }
 
-  // set the stage of the currently selected word (updates popup, text, progress)
+  // set the stage of the currently selected word/phrase (updates popup, text, progress)
   function applyStage(s) {
     if (!current) return;
-    setStage(current.dataset.w, s);
-    refreshWordClasses(reading, current.dataset.w);
+    const key = current.key;
+    setStage(key, s);
+    if (key.includes(' ')) {
+      // phrases merge/split in the text itself: refresh the phrase list and
+      // re-render the page (the .w element the popup was opened on becomes
+      // detached — `current` keeps its own key/text copy)
+      refreshActivePhrases();
+      renderCurrentPage();
+      uniqueWordsCache.delete(book.id); // the book's word set may have changed
+    } else {
+      refreshWordClasses(reading, key);
+    }
     updateProgress(view, book);
     if (popup) syncPopupUI(s);
   }
@@ -344,6 +408,10 @@ export function renderReader(view, book) {
   // update the open popup's dynamic bits (stage name, buttons) in place
   function syncPopupUI(s) {
     if (!popup) return;
+    // translate-only popups (sentences / spans crossing punctuation) render no
+    // stage UI — nothing to sync
+    if (!popup.querySelector('#wp-stage-name') || !popup.querySelector('#wp-advance')) return;
+    const isPhrase = current && current.key.includes(' ');
     const ignored = s === IGNORE_STAGE;
     popup.querySelectorAll('.wp-stage').forEach((b) =>
       b.classList.toggle('active', !ignored && +b.dataset.s === s)
@@ -356,7 +424,10 @@ export function renderReader(view, book) {
       adv.disabled = false;
       ig.style.display = 'none';
     } else {
-      adv.textContent = s < 4 ? `Learn → stage ${s + 1}` : 'Known ✓';
+      // for phrases, stage 0 reads "Seen ✓": marking seen is what merges the
+      // phrase into the text (single words keep "Learn → stage 1")
+      adv.textContent =
+        s === 4 ? 'Known ✓' : s === 0 && isPhrase ? 'Seen ✓' : `Learn → stage ${s + 1}`;
       adv.disabled = s === 4;
       ig.style.display = '';
     }
@@ -386,9 +457,89 @@ export function renderReader(view, book) {
     openPopup(el, r.left + r.width / 2, r.bottom);
   }
 
+  // the .w element whose popup was last opened (shift+click span anchor)
+  let lastClickedWordEl = null;
+  // when set, the next document click is swallowed (and reset): the click
+  // that follows a drag/tap selection is synthetic and would otherwise
+  // clobber the phrase popup we just opened
+  let suppressNextClick = false;
+
+  // ---- phrase span selection (drag across words within one paragraph) ----
+
+  // all .w elements between a and b inclusive, in reading order; both must
+  // be in the same paragraph. Spans longer than MAX_SPAN_WORDS are capped,
+  // counting from the anchor (guard against accidental huge drags)
+  function spanWords(a, b) {
+    if (a === b) return [a];
+    const para = a.closest('.para');
+    if (!para || b.closest('.para') !== para) return [];
+    const words = [...para.querySelectorAll('.w')];
+    const ia = words.indexOf(a);
+    const ib = words.indexOf(b);
+    if (ia < 0 || ib < 0) return [];
+    let lo = Math.min(ia, ib);
+    let hi = Math.max(ia, ib);
+    if (hi - lo + 1 > MAX_SPAN_WORDS) {
+      if (ia < ib) hi = lo + MAX_SPAN_WORDS - 1;
+      else lo = hi - MAX_SPAN_WORDS + 1;
+    }
+    return words.slice(lo, hi + 1);
+  }
+
+  // add/remove the w-sel highlight for a list of word elements (null or a
+  // single word clears — a one-word "span" is just a normal click)
+  function setSelection(words) {
+    for (const el of reading.querySelectorAll('.w.w-sel')) el.classList.remove('w-sel');
+    if (words && words.length >= 2) for (const el of words) el.classList.add('w-sel');
+  }
+
+  // display text (original case, whitespace collapsed) of a span of words,
+  // taken straight from the paragraph's textContent via char offsets
+  function spanText(words) {
+    const para = words[0].closest('.para');
+    const offsetOf = (el) => {
+      let off = 0;
+      for (const n of para.childNodes) {
+        if (n === el) break;
+        off += (n.textContent || '').length;
+      }
+      return off;
+    };
+    const first = words[0];
+    const last = words[words.length - 1];
+    return para.textContent
+      .slice(offsetOf(first), offsetOf(last) + last.textContent.length)
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  // the full sentence containing a word element: expand left past the
+  // previous .!?… and right to the next one (punctuation included)
+  function sentenceOf(el) {
+    const p = el.closest('.para');
+    if (!p) return null;
+    const text = p.textContent;
+    let off = 0;
+    for (const n of p.childNodes) {
+      if (n === el) break;
+      off += (n.textContent || '').length;
+    }
+    let s = off;
+    while (s > 0 && !SENT_END.test(text[s - 1])) s--;
+    let e = off + el.textContent.length;
+    while (e < text.length && !SENT_END.test(text[e])) e++;
+    if (e < text.length) e++; // include the terminator
+    return text.slice(s, e).replace(/\s+/g, ' ').trim();
+  }
+
   // one global click handler: a word opens its popup, anything else closes it
   // (works with taps on mobile too, including taps on the sidebar/header)
   const onDocClick = (e) => {
+    // swallow the synthetic click after a drag/tap selection
+    if (suppressNextClick) {
+      suppressNextClick = false;
+      return;
+    }
     const t = e.target instanceof Element ? e.target : null;
     // the click's target can be detached mid-dispatch when our own handlers
     // re-render its ancestors (deleting a custom translation re-renders the
@@ -399,30 +550,201 @@ export function renderReader(view, book) {
       !!popup && !!t && (t.closest('.word-popup') || e.composedPath().includes(popup));
     if (inPopup) return; // popup handles its own clicks
     const w = t && t.closest('.w');
-    if (w) openPopup(w, e.clientX, e.clientY);
-    else closePopup();
+    if (w) {
+      // shift+click: phrase popup for the span from the previously clicked
+      // word (same paragraph, ≥2 words); otherwise the normal word popup
+      if (e.shiftKey && lastClickedWordEl && lastClickedWordEl !== w) {
+        const words = spanWords(lastClickedWordEl, w);
+        if (words.length >= 2) {
+          const text = spanText(words);
+          const r = w.getBoundingClientRect();
+          openPhrasePopup({
+            text,
+            key: normalizePhraseKey(text),
+            x: r.left + r.width / 2,
+            y: r.bottom,
+          });
+          setSelection(words);
+          return;
+        }
+      }
+      openPopup(w, e.clientX, e.clientY);
+    } else closePopup();
   };
   document.addEventListener('click', onDocClick);
 
+  // desktop: press a word, drag, release on another word of the same
+  // paragraph → phrase popup for the span. A release on the anchor word is
+  // a plain click — do nothing here, the click event opens the word popup.
+  let dragAnchor = null;
+  const wordAtPoint = (x, y) => {
+    const el = document.elementFromPoint(x, y);
+    return el && el.closest ? el.closest('.w') : null;
+  };
+  const onMouseDown = (e) => {
+    if (e.button !== 0) return;
+    suppressNextClick = false; // a new press gesture starts
+    dragAnchor = e.target instanceof Element && e.target.closest('.w');
+  };
+  const onMouseMove = (e) => {
+    if (!dragAnchor) return;
+    const w = wordAtPoint(e.clientX, e.clientY);
+    setSelection(w ? spanWords(dragAnchor, w) : null);
+  };
+  const onMouseUp = (e) => {
+    if (!dragAnchor) return;
+    const anchor = dragAnchor;
+    dragAnchor = null;
+    const w = wordAtPoint(e.clientX, e.clientY);
+    const words = w ? spanWords(anchor, w) : null;
+    if (words && words.length >= 2 && w !== anchor) {
+      const text = spanText(words);
+      suppressNextClick = true; // swallow the synthetic click after the drag
+      openPhrasePopup({
+        text,
+        key: normalizePhraseKey(text),
+        x: e.clientX,
+        y: e.clientY,
+      });
+      setSelection(words); // keep the span highlighted while the popup is open
+    } else {
+      setSelection(null);
+    }
+  };
+  reading.addEventListener('mousedown', onMouseDown);
+  document.addEventListener('mousemove', onMouseMove);
+  document.addEventListener('mouseup', onMouseUp);
+
+  // mobile: .w has touch-action: pan-y, so horizontal drags reach us while
+  // vertical swipes still scroll natively (the browser takes the gesture
+  // over and fires touchcancel). Selection mode starts once the gesture is
+  // clearly horizontal (>12px and |dx| > |dy|).
+  let touchAnchor = null;
+  let touchId = null;
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let touchSelecting = false;
+  const changedTouch = (e) => {
+    for (const t of e.changedTouches) if (t.identifier === touchId) return t;
+    return null;
+  };
+  const onTouchStart = (e) => {
+    const t = e.changedTouches[0];
+    const w = e.target instanceof Element && e.target.closest('.w');
+    if (!w) return;
+    suppressNextClick = false; // a new press gesture starts
+    touchAnchor = w;
+    touchId = t.identifier;
+    touchStartX = t.clientX;
+    touchStartY = t.clientY;
+    touchSelecting = false;
+  };
+  const onTouchMove = (e) => {
+    if (!touchAnchor) return;
+    const t = changedTouch(e);
+    if (!t) return;
+    const dx = t.clientX - touchStartX;
+    const dy = t.clientY - touchStartY;
+    if (!touchSelecting) {
+      if (!(Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy))) return;
+      touchSelecting = true;
+    }
+    const w = wordAtPoint(t.clientX, t.clientY); // clamped by spanWords to the anchor's paragraph
+    setSelection(w ? spanWords(touchAnchor, w) : null);
+  };
+  const onTouchEnd = (e) => {
+    if (!touchAnchor) return;
+    const anchor = touchAnchor;
+    const selecting = touchSelecting;
+    touchAnchor = null;
+    touchSelecting = false;
+    const t = changedTouch(e);
+    if (!t || !selecting) return;
+    const w = wordAtPoint(t.clientX, t.clientY);
+    const words = w ? spanWords(anchor, w) : null;
+    if (words && words.length >= 2 && w !== anchor) {
+      const text = spanText(words);
+      suppressNextClick = true; // so the synthesized click doesn't clobber the popup
+      openPhrasePopup({
+        text,
+        key: normalizePhraseKey(text),
+        x: t.clientX,
+        y: t.clientY,
+      });
+      setSelection(words);
+    } else {
+      // short drag or plain tap: clear highlight and let the synthesized
+      // click/tap open the normal word popup
+      setSelection(null);
+    }
+  };
+  const onTouchCancel = () => {
+    // the browser took over the gesture as a scroll — clear highlight only
+    if (touchAnchor) {
+      touchAnchor = null;
+      touchSelecting = false;
+      setSelection(null);
+    }
+  };
+  reading.addEventListener('touchstart', onTouchStart, { passive: true });
+  document.addEventListener('touchmove', onTouchMove, { passive: true });
+  document.addEventListener('touchend', onTouchEnd, { passive: true });
+  document.addEventListener('touchcancel', onTouchCancel, { passive: true });
+
+  // open the popup on a word element, positioned near it. Words and merged
+  // phrases both render as .w elements, so this is one code path.
   function openPopup(el, x, y) {
+    openPhrasePopup({ text: el.textContent, key: el.dataset.w, x, y, el });
+  }
+
+  // the single popup builder. `key` is the normalized word/phrase key
+  // (phrases and sentences contain spaces) and `text` the display form used
+  // for the title and the Google Translate link. Keys with spaces get the
+  // phrase variant: dictionary lookup via translatePhrase, a "Seen ✓" primary
+  // button (stage 0 → 1 is what merges the phrase into the text) and a merge
+  // hint; single words get a "⤢ sentence" button instead.
+  function openPhrasePopup({ text, key, x, y, el = null }) {
     closePopup();
-    current = el;
-    const key = el.dataset.w;
+    current = { key, text, el };
+    if (el) lastClickedWordEl = el;
+    const isPhrase = key.includes(' ');
+    // sentences and spans that cross punctuation (comma, period, …) keep that
+    // punctuation in their key, and tokenizeWithPhrases only merges runs of
+    // single-space-separated words — so such keys can never merge into the
+    // text. They are translate-only: keep the gloss + Google Translate link,
+    // hide all stage/learning controls.
+    const learnable = isLearnableKey(key);
     const stage = getStage(key);
-    const result = dict ? translate(dict, el.textContent) : null;
-    const gtUrl = `https://translate.google.com/?sl=${encodeURIComponent(book.language)}&tl=en&text=${encodeURIComponent(el.textContent)}&op=translate`;
+    const result = dict
+      ? isPhrase ? translatePhrase(dict, key) : translate(dict, text)
+      : null;
+    const gtUrl = `https://translate.google.com/?sl=${encodeURIComponent(book.language)}&tl=en&text=${encodeURIComponent(text)}&op=translate`;
+    const advLabel =
+      stage === IGNORE_STAGE
+        ? 'Un-ignore'
+        : stage === 4
+          ? 'Known ✓'
+          : stage === 0 && isPhrase
+            ? 'Seen ✓'
+            : `Learn → stage ${stage + 1}`;
 
     popup = document.createElement('div');
     popup.className = 'word-popup';
     popup.innerHTML = `
       <div class="wp-word">
-        <span>${esc(el.textContent)}
+        <span>${esc(text)}
           ${result && result.stem ? `<span class="wp-stem">← ${esc(result.stem)}</span>` : ''}
         </span>
-        <a class="wp-gt" id="wp-gt" href="${gtUrl}" target="_blank" rel="noopener" title="Open in Google Translate">translate ↗</a>
+        <span class="wp-links">
+          ${!isPhrase && el ? '<button class="wp-gt" id="wp-sentence" type="button" title="Translate the whole sentence in Google Translate">⤢ sentence</button>' : ''}
+          <a class="wp-gt" id="wp-gt" href="${gtUrl}" target="_blank" rel="noopener" title="Open in Google Translate">translate ↗</a>
+        </span>
       </div>
       ${glossBlockHtml(result, !!dict)}
       <button class="wp-more" id="wp-more" type="button" hidden>Show more…</button>
+      ${
+        learnable
+          ? `
       ${customsBlockHtml(key)}
       <form class="wp-trans-form" id="wp-trans-form" hidden>
         <input type="text" id="wp-trans-input" placeholder="Add your own translation…" autocomplete="off" />
@@ -437,12 +759,20 @@ export function renderReader(view, book) {
       </div>
       <div class="wp-stage-label muted small">Stage: <b id="wp-stage-name">${stage === IGNORE_STAGE ? IGNORE_LABEL : STAGE_NAMES[stage]}</b></div>
       <div class="wp-actions">
-        <button class="btn primary" id="wp-advance">${stage === IGNORE_STAGE ? 'Un-ignore' : stage < 4 ? `Learn → stage ${stage + 1}` : 'Known ✓'}</button>
+        <button class="btn primary" id="wp-advance">${advLabel}</button>
         <button class="btn ghost" id="wp-ignore"${stage === IGNORE_STAGE ? ' style="display:none"' : ''}>${stage === IGNORE_STAGE ? '' : 'Ignore word'}</button>
         <button class="btn ghost" id="wp-add-trans">＋ Add translation</button>
         <button class="btn ghost" id="wp-close">Close (Esc)</button>
       </div>
-      <div class="wp-keys">0–4 stage · ⏎ advance · u back · n next · i ignore · t translate · a add trans · esc close</div>`;
+      ${isPhrase ? '<div class="wp-hint muted small">Seen words merge into the text; set stage 0 to split them again.</div>' : ''}
+      <div class="wp-keys">0–4 stage · ⏎ advance · u back · n next · i ignore · t translate · a add trans · esc close</div>`
+          : `
+      <div class="wp-actions">
+        <button class="btn ghost" id="wp-close">Close (Esc)</button>
+      </div>
+      <div class="wp-hint muted small">This selection includes punctuation, so it can't be learned as one word — translate it in Google, or select only the words you want to learn.</div>
+      <div class="wp-keys">t translate · n next · esc close</div>`
+      }`;
     document.body.appendChild(popup);
     popupOpenWidth = innerWidth;
 
@@ -451,9 +781,12 @@ export function renderReader(view, book) {
     popup.classList.toggle('wp-sheet', sheet);
     if (sheet) {
       // if the tapped word ends up behind the sheet, scroll it into view
-      const wr = el.getBoundingClientRect();
-      const sheetTop = innerHeight - Math.min(innerHeight * 0.75, 540);
-      if (wr.bottom > sheetTop + 16) window.scrollBy(0, wr.bottom - sheetTop + 16);
+      // (phrase spans and sentences have no element to scroll to)
+      if (el) {
+        const wr = el.getBoundingClientRect();
+        const sheetTop = innerHeight - Math.min(innerHeight * 0.75, 540);
+        if (wr.bottom > sheetTop + 16) window.scrollBy(0, wr.bottom - sheetTop + 16);
+      }
     } else {
       // position near click, clamped to viewport
       const r = popup.getBoundingClientRect();
@@ -486,17 +819,24 @@ export function renderReader(view, book) {
     // bind the delete handlers) and after a translation is added/removed.
     function refreshGlossArea() {
       if (!popup || !current) return;
+      const phrase = current.key.includes(' ');
+      const result = dict
+        ? phrase ? translatePhrase(dict, current.key) : translate(dict, current.text)
+        : null;
       const wrap = document.createElement('div');
+      // translate-only popups render no customs block (unreachable anyway)
       wrap.innerHTML =
-        glossBlockHtml(dict ? translate(dict, current.textContent) : null, !!dict) +
-        customsBlockHtml(current.dataset.w);
+        glossBlockHtml(result, !!dict) + (learnable ? customsBlockHtml(current.key) : '');
       const old = popup.querySelector('#wp-gloss');
       const oldCustoms = popup.querySelector('#wp-customs');
-      if (old) old.replaceWith(wrap.children[0], wrap.children[1]);
+      if (old) {
+        if (learnable) old.replaceWith(wrap.children[0], wrap.children[1]);
+        else old.replaceWith(wrap.children[0]);
+      }
       if (oldCustoms) oldCustoms.remove(); // stale block from a previous render
       for (const b of popup.querySelectorAll('#wp-customs .wp-custom-del')) {
         b.addEventListener('click', () => {
-          removeCustomTranslation(current.dataset.w, +b.dataset.i);
+          removeCustomTranslation(current.key, +b.dataset.i);
           refreshGlossArea();
         });
       }
@@ -504,43 +844,64 @@ export function renderReader(view, book) {
     }
     refreshGlossArea();
 
-    // "add translation": inline form; on touch it closes after adding (fast tap loop)
-    const transForm = popup.querySelector('#wp-trans-form');
-    const transInput = popup.querySelector('#wp-trans-input');
-    popup.querySelector('#wp-add-trans').addEventListener('click', () => {
-      transForm.hidden = !transForm.hidden;
-      if (!transForm.hidden) transInput.focus();
-    });
-    transForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      if (!current) return;
-      if (addCustomTranslation(current.dataset.w, transInput.value)) {
-        transInput.value = '';
-        refreshGlossArea();
-        if (isTouch) {
-          transForm.hidden = true;
-          transInput.blur();
+    // stage/learning controls only exist on learnable popups; translate-only
+    // popups (sentences / spans crossing punctuation) skip all of these
+    if (learnable) {
+      // "add translation": inline form; on touch it closes after adding (fast tap loop)
+      const transForm = popup.querySelector('#wp-trans-form');
+      const transInput = popup.querySelector('#wp-trans-input');
+      popup.querySelector('#wp-add-trans').addEventListener('click', () => {
+        transForm.hidden = !transForm.hidden;
+        if (!transForm.hidden) transInput.focus();
+      });
+      transForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        if (!current) return;
+        if (addCustomTranslation(current.key, transInput.value)) {
+          transInput.value = '';
+          refreshGlossArea();
+          if (isTouch) {
+            transForm.hidden = true;
+            transInput.blur();
+          } else {
+            transInput.focus(); // keep the form open for adding several
+          }
         } else {
-          transInput.focus(); // keep the form open for adding several
+          transInput.select(); // empty or duplicate: keep focus for a retry
         }
-      } else {
-        transInput.select(); // empty or duplicate: keep focus for a retry
-      }
-    });
+      });
 
-    for (const b of popup.querySelectorAll('.wp-stage')) {
-      b.addEventListener('click', () => applyStage(+b.dataset.s));
+      for (const b of popup.querySelectorAll('.wp-stage')) {
+        b.addEventListener('click', () => applyStage(+b.dataset.s));
+      }
+      popup.querySelector('#wp-advance').addEventListener('click', () => {
+        const s = getStage(current.key);
+        applyStage(s === IGNORE_STAGE ? 0 : Math.min(4, s + 1));
+        if (isTouch) closePopup(); // fast tap loop: advance, then tap the next word
+      });
+      popup.querySelector('#wp-ignore').addEventListener('click', () => {
+        applyStage(IGNORE_STAGE);
+        if (isTouch) closePopup();
+      });
     }
-    popup.querySelector('#wp-advance').addEventListener('click', () => {
-      const s = getStage(current.dataset.w);
-      applyStage(s === IGNORE_STAGE ? 0 : Math.min(4, s + 1));
-      if (isTouch) closePopup(); // fast tap loop: advance, then tap the next word
-    });
-    popup.querySelector('#wp-ignore').addEventListener('click', () => {
-      applyStage(IGNORE_STAGE);
-      if (isTouch) closePopup();
-    });
     popup.querySelector('#wp-close').addEventListener('click', closePopup);
+
+    // "⤢ sentence": open the full sentence containing the word via the phrase
+    // popup — in-context Google Translate, learned only if the user marks it seen
+    const sentBtn = popup.querySelector('#wp-sentence');
+    if (sentBtn) {
+      sentBtn.addEventListener('click', () => {
+        const sentence = sentenceOf(el);
+        if (!sentence) return;
+        const r = el.getBoundingClientRect();
+        openPhrasePopup({
+          text: sentence,
+          key: normalizePhraseKey(sentence),
+          x: r.left + r.width / 2,
+          y: r.bottom,
+        });
+      });
+    }
     syncPopupUI(stage);
   }
 
@@ -555,28 +916,32 @@ export function renderReader(view, book) {
       return;
     }
     if (popup && current) {
+      // translate-only popups (sentences / spans crossing punctuation): only
+      // t/esc/n work — the stage keys below are no-ops
+      const learnable = isLearnableKey(current.key);
+      if (e.key === 't' || e.key === 'T') {
+        popup.querySelector('#wp-gt').click(); // opens Google Translate in a new tab
+        return;
+      }
+      if ((e.key === 'n' || e.key === 'N') && !onButton) {
+        const nx = nextWordToLearn();
+        if (nx && nx !== (current && current.el)) openWordAt(nx);
+        return;
+      }
+      if (!learnable) return; // 0–4 / Enter / u / i / a do nothing here
       if (/^[0-4]$/.test(e.key)) {
         applyStage(+e.key); // 0 resets to New, 1–4 set the stage (also un-ignores)
         return;
       }
       if ((e.key === 'Enter' || e.key === 'ArrowRight') && !onButton) {
-        const s = getStage(current.dataset.w);
+        const s = getStage(current.key);
         if (s === IGNORE_STAGE) applyStage(0);
         else if (s < 4) applyStage(s + 1);
         return;
       }
       if (e.key === 'u' || e.key === 'U') {
-        const s = getStage(current.dataset.w);
+        const s = getStage(current.key);
         if (s > 0 && s !== IGNORE_STAGE) applyStage(s - 1);
-        return;
-      }
-      if ((e.key === 'n' || e.key === 'N') && !onButton) {
-        const nx = nextWordToLearn();
-        if (nx && nx !== current) openWordAt(nx);
-        return;
-      }
-      if (e.key === 't' || e.key === 'T') {
-        popup.querySelector('#wp-gt').click(); // opens Google Translate in a new tab
         return;
       }
       if (e.key === 'a' || e.key === 'A') {
@@ -586,7 +951,7 @@ export function renderReader(view, book) {
         return;
       }
       if (e.key === 'i' || e.key === 'I') {
-        const s = getStage(current.dataset.w);
+        const s = getStage(current.key);
         applyStage(s === IGNORE_STAGE ? 0 : IGNORE_STAGE);
         return;
       }
@@ -614,13 +979,19 @@ export function renderReader(view, book) {
     closePopup();
     document.removeEventListener('keydown', onKey);
     document.removeEventListener('click', onDocClick);
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+    document.removeEventListener('touchmove', onTouchMove);
+    document.removeEventListener('touchend', onTouchEnd);
+    document.removeEventListener('touchcancel', onTouchCancel);
     window.removeEventListener('resize', onResize);
   };
 
   // ---- helpers ----
 
   function paraToHtml(para) {
-    const frags = tokenize(para);
+    // active phrases merge into single .w units (no-op when none are active)
+    const frags = tokenizeWithPhrases(para, activePhrasesCache);
     let html = '';
     for (const f of frags) {
       if (f.type === 'text') html += esc(f.value);
