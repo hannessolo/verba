@@ -65,7 +65,7 @@ function customsBlockHtml(key) {
   });
   return `<div class="wp-customs" id="wp-customs">${inner}</div>`;
 }
-const LANG_NAMES = { it: 'Italian', es: 'Spanish' };
+const LANG_NAMES = { it: 'Italian', es: 'Spanish', fr: 'French' };
 
 let uniqueWordsCache = new Map(); // bookId -> [wordKeys]
 

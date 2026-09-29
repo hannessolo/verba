@@ -16,9 +16,16 @@ const STOPWORDS = {
     'todos', 'cada', 'dónde', 'como', 'muy', 'pues', 'ya', 'aquí',
     'alli', 'una',
   ],
+  fr: [
+    'les', 'des', 'dans', 'avec', 'pour', 'très', 'tres', 'mais',
+    'aussi', 'vous', 'nous', 'elle', 'elles', 'sont', 'était', 'étaient',
+    'être', 'etre', 'tous', 'toutes', 'toujours', 'encore', 'autre',
+    'peut', 'devant', 'souvent', 'même', 'meme', 'cette', 'ces',
+    'quel', 'quelle', 'quels', 'quelles', 'sur',
+  ],
 };
 
-/** Italian/Spanish detector based on distinctive stopword frequency. */
+/** Italian/Spanish/French detector based on distinctive stopword frequency. */
 export function detectLanguage(text) {
   const lower = text.toLowerCase();
   const count = (words) =>
@@ -26,13 +33,23 @@ export function detectLanguage(text) {
       const re = new RegExp(`(^|[^a-zà-ÿ'’-])${w}($|[^a-zà-ÿ'’-])`, 'g');
       return acc + (lower.match(re) || []).length;
     }, 0);
-  const it = count(STOPWORDS.it);
-  const es = count(STOPWORDS.es);
-  // require a minimum signal and a clear margin before committing
-  if (Math.min(it, es) < 3) return null;
-  if (it * 2 < es) return 'es';
-  if (es * 2 < it) return 'it';
-  return null;
+  const scores = {
+    it: count(STOPWORDS.it),
+    es: count(STOPWORDS.es),
+    fr: count(STOPWORDS.fr),
+  };
+  const langs = Object.keys(scores);
+  const best = langs.reduce((a, b) => (scores[a] >= scores[b] ? a : b));
+  const bestScore = scores[best];
+  // require a clear margin over every other language before committing;
+  // if a rival has no signal at all, stay conservative (match the original
+  // two-language behaviour of asking the user when signal is thin)
+  if (bestScore < 3) return null;
+  for (const other of langs) {
+    if (other === best) continue;
+    if (scores[other] < 3 || scores[other] * 2 >= bestScore) return null;
+  }
+  return best;
 }
 
 /** Split text into paragraph blocks. */
@@ -47,9 +64,10 @@ export function toParagraphs(text) {
 // matches a word token: letters (incl. accented), internal apostrophes/hyphens
 export const WORD_RE = /([A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'’\-]*)/g;
 
-// leading elision particles (d' l' n' t' c' s' all' dall' dell' nell' un' bell' quell' quall')
+// leading elision particles (d' l' n' t' c' s' all' dall' dell' nell' un' bell' quell' quall'
+// in Italian/Spanish; c' l' n' t' c' s' j' qu' m' d' in French, e.g. "l'homme", "qu'il")
 // are stripped and rendered as plain text, so "l'altissimo" resolves to "altissimo"
-const ELISION_RE = /^(?:d|l|n|t|c|s|de|ne|all|dall|dell|nell|un|bell|quell|quall)[’']/i;
+const ELISION_RE = /^(?:d|l|n|t|c|s|j|m|qu|de|ne|all|dall|dell|nell|un|bell|quell|quall)[’']/i;
 
 const hasLetter = (s) => /[A-Za-zÀ-ÖØ-öø-ÿ]/.test(s);
 // any letter-bearing fragment is a word (incl. 1-char words like "e" and "o" —

@@ -7,7 +7,7 @@
 //    cache-first; they are content-hashed and immutable, and the
 //    ~8MB dictionaries are cached on first use instead of precached
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CORE_CACHE = `verba-core-${VERSION}`;
 const RUNTIME_CACHE = `verba-runtime-${VERSION}`;
 
@@ -19,6 +19,7 @@ const CORE_ASSETS = [
   './icons/icon-512.png',
   './samples/decameron.txt',
   './samples/quijote.txt',
+  './samples/monte-cristo.txt',
 ];
 
 self.addEventListener('install', (e) => {

@@ -126,5 +126,7 @@ function emit(map, outFile) {
 
 const it = build(path.join(root, 'dicts/it_en.tsv'));
 const es = build(path.join(root, 'dicts/es_en.tsv'));
+const fr = build(path.join(root, 'dicts/fr_en.tsv'));
 emit(it, path.join(root, 'src/dict/it-en.js'));
 emit(es, path.join(root, 'src/dict/es-en.js'));
+emit(fr, path.join(root, 'src/dict/fr-en.js'));

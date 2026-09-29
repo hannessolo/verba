@@ -3,14 +3,14 @@ import { parseEpub } from '../lib/epub.js';
 import { detectLanguage, toParagraphs } from '../lib/text.js';
 import { downloadData, importFromFile, importSummary } from '../lib/transfer.js';
 
-const LANG_NAMES = { it: 'Italian', es: 'Spanish' };
+const LANG_NAMES = { it: 'Italian', es: 'Spanish', fr: 'French' };
 
 export function renderLibrary(view) {
   view.innerHTML = `
     <section class="library">
       <div class="upload-card">
         <h2>Add a text</h2>
-        <p class="muted">Upload a plain text <b>.txt</b> or an <b>.epub</b> book in Italian or Spanish.
+        <p class="muted">Upload a plain text <b>.txt</b> or an <b>.epub</b> book in Italian, Spanish or French.
         Every word starts as <span class="demo-w st0">unknown</span> and you promote it through the stages
         as you learn it.</p>
         <div class="upload-row">
@@ -22,6 +22,7 @@ export function renderLibrary(view) {
             <option value="auto">Auto-detect language</option>
             <option value="it">Italian</option>
             <option value="es">Spanish</option>
+            <option value="fr">French</option>
           </select>
         </div>
         <div id="upload-status" class="muted"></div>
@@ -29,6 +30,7 @@ export function renderLibrary(view) {
           <span class="muted">Or try a sample:</span>
           <button class="btn ghost" data-sample="decameron">Italiano · Decameron (Boccaccio)</button>
           <button class="btn ghost" data-sample="quijote">Español · Don Quijote (Cervantes)</button>
+          <button class="btn ghost" data-sample="monte-cristo">Français · Le Comte de Monte-Cristo (Dumas)</button>
         </div>
         <div class="data-row">
           <span class="muted small">Your data:</span>
@@ -85,13 +87,17 @@ export function renderLibrary(view) {
         if (!res.ok) throw new Error('sample not found');
         const text = await res.text();
         const name = btn.dataset.sample;
-        const title = name === 'decameron' ? 'Decameron (excerpt)' : 'Don Quijote (excerpt)';
-        const author = name === 'decameron' ? 'Giovanni Boccaccio' : 'Miguel de Cervantes';
-        const lang = name === 'decameron' ? 'it' : 'es';
+        const SAMPLES = {
+          decameron: { title: 'Decameron (excerpt)', author: 'Giovanni Boccaccio', lang: 'it' },
+          quijote: { title: 'Don Quijote (excerpt)', author: 'Miguel de Cervantes', lang: 'es' },
+          'monte-cristo': { title: 'Le Comte de Monte-Cristo (excerpt)', author: 'Alexandre Dumas', lang: 'fr' },
+        };
+        const s = SAMPLES[name];
+        if (!s) throw new Error('unknown sample');
         const book = addBook({
-          title,
-          author,
-          language: lang,
+          title: s.title,
+          author: s.author,
+          language: s.lang,
           chapters: [{ title: 'Text', text: toParagraphs(text).join('\n\n') }],
         });
         location.hash = `#/book/${book.id}`;
@@ -122,10 +128,11 @@ async function importFile(file, langChoice) {
   if (!language) {
     // ask the user when detection is inconclusive
     const answer = prompt(
-      'Could not auto-detect the language.\n1 = Italian, 2 = Spanish'
+      'Could not auto-detect the language.\n1 = Italian, 2 = Spanish, 3 = French'
     );
     if (answer === '1') language = 'it';
     else if (answer === '2') language = 'es';
+    else if (answer === '3') language = 'fr';
     else throw new Error('Language not set — re-import and pick a language.');
   }
   return addBook({ title, author, language, chapters });

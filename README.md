@@ -1,6 +1,6 @@
 # verba
 
-A small reading app: read Italian or Spanish texts, and learn
+A small reading app: read Italian, Spanish or French texts, and learn
 vocabulary one word at a time. Built with vanilla JavaScript + Vite, no
 frameworks. All data (books + word stages) lives in `localStorage` — no
 server, no accounts.
@@ -8,14 +8,14 @@ server, no accounts.
 ## Features
 
 - **Import texts** as plain `.txt` or `.epub` (chapters are extracted and
-  read in order). Language is auto-detected, or you can force Italian/Spanish.
-  Two public-domain samples ship with the app (Boccaccio, Cervantes).
+  read in order). Language is auto-detected, or you can force Italian/Spanish/French.
+  Three public-domain samples ship with the app (Boccaccio, Cervantes, Dumas).
 - **Word stages 0–4.** Every word starts at stage 0
   (highlighted red = "unknown"). Click a word to see its English translation
   and move it through the stages:
   - 0 New (red) → 1 Saw it (orange) → 2 Getting it (yellow) → 3 Almost known
     (light green) → 4 Known (no highlight)
-- **Offline translations.** Full Italian→English and Spanish→English
+- **Offline translations.** Full Italian→English, Spanish→English and French→English
   dictionaries (headwords derived from Wiktionary, incl. many inflected
   forms, ~1M / ~1.4M entries) ship as gzip-compressed data and are
   decompressed in the browser. A light suffix-stripping fallback resolves
@@ -58,7 +58,7 @@ npm run build-dicts
 ### Dictionary sources
 
 - Raw data: [Vuizur/Wiktionary-Dictionaries](https://github.com/Vuizur/Wiktionary-Dictionaries)
-  (Italian/Spanish English TSVs) — extracted from
+  (Italian/Spanish/French English TSVs) — extracted from
   [en.wiktionary.org](https://en.wiktionary.org), **CC-BY-SA 4.0**.
   The raw TSVs are gitignored (~41 MB); download them if you need to rebuild:
 
@@ -66,8 +66,10 @@ npm run build-dicts
   mkdir -p dicts && cd dicts
   curl -LO 'https://raw.githubusercontent.com/Vuizur/Wiktionary-Dictionaries/master/Italian-English%20Wiktionary%20dictionary.tsv'
   curl -LO 'https://raw.githubusercontent.com/Vuizur/Wiktionary-Dictionaries/master/Spanish-English%20Wiktionary%20dictionary.tsv'
+  curl -LO 'https://raw.githubusercontent.com/Vuizur/Wiktionary-Dictionaries/master/French-English%20Wiktionary%20dictionary.tsv'
   mv 'Italian-English Wiktionary dictionary.tsv' it_en.tsv
   mv 'Spanish-English Wiktionary dictionary.tsv' es_en.tsv
+  mv 'French-English Wiktionary dictionary.tsv' fr_en.tsv
   cd .. && npm run build-dicts
   ```
 
@@ -84,7 +86,7 @@ npm run build-dicts
 ```
 dicts/            raw TSV dictionaries (Wiktionary-derived)
 scripts/          build-dicts.mjs (TSV -> src/dict/*.js)
-public/samples/   sample texts (Decameron, Don Quijote)
+public/samples/   sample texts (Decameron, Don Quijote, Monte-Cristo)
 src/
   main.js         app shell + hash routing (library / reader)
   styles.css

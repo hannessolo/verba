@@ -1,7 +1,7 @@
 {
   "name": "verba — learn words while reading",
   "short_name": "verba",
-  "description": "Upload a book in Italian or Spanish, tap the words you don't know, and watch them fade away as you learn them.",
+  "description": "Upload a book in Italian, Spanish or French, tap the words you don't know, and watch them fade away as you learn them.",
   "id": "verba",
   "start_url": "./",
   "scope": "./",
