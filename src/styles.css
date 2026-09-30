@@ -577,6 +577,18 @@ button.wp-gt {
 }
 .vocab-word { font-size: 15px; }
 .vocab-word.phrase { font-style: italic; }
+.vocab-lang {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-radius: 999px;
+  padding: 1px 7px;
+  background: #eef3ee;
+  color: var(--accent);
+  border: 1px solid #d8e4da;
+}
 .vocab-row .dot { flex: none; width: 12px; height: 12px; }
 .vocab .dot.st0 { background: var(--st0); }
 .vocab .dot.st1 { background: var(--st1); }

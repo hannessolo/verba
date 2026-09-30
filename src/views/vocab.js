@@ -1,4 +1,4 @@
-import { store, setStage, setSrs, srsState, IGNORE_STAGE } from '../lib/store.js';
+import { store, setStage, setSrs, srsState, parseScopedKey, IGNORE_STAGE } from '../lib/store.js';
 import { loadDict, translate, translatePhrase } from '../lib/dict.js';
 
 const STAGE_NAMES = ['New', 'Saw it', 'Getting it', 'Almost known', 'Known'];
@@ -19,26 +19,36 @@ function shuffle(a) {
   return a;
 }
 
-// All stage-0-4 words (phrases included; ignored words excluded).
+// All stage-0-4 words (phrases included; ignored words excluded). Keys are
+// language-scoped in the store; we split them so the list can show the bare
+// word plus its language and look up the right dictionary.
 function listWords() {
   const out = [];
   for (const [key, s] of Object.entries(store.stages)) {
-    if (s >= 0 && s <= 4) out.push({ key, stage: s, phrase: key.includes(' ') });
+    if (s < 0 || s > 4) continue;
+    const p = parseScopedKey(key);
+    const word = p ? p.key : key;
+    out.push({
+      key, // scoped key — used for all store/srs operations
+      lang: p ? p.lang : null,
+      word, // bare word/phrase — used for display and dictionary lookups
+      stage: s,
+      phrase: word.includes(' '),
+    });
   }
   return out;
 }
 
-// English side: first custom translation, else the dictionary (es, then it).
+// English side: first custom translation, else the word's own-language dict.
 // Returns the full gloss or null.
 function englishFor(entry, dicts) {
   const custom = store.translations[entry.key];
   if (Array.isArray(custom) && custom.length) return custom[0];
   if (!dicts) return null; // dictionaries still loading
-  for (const d of [dicts.es, dicts.it]) {
-    if (!d) continue;
-    const r = entry.phrase ? translatePhrase(d, entry.key) : translate(d, entry.key);
-    if (r) return r.gloss;
-  }
+  const d = entry.lang && dicts[entry.lang];
+  if (!d) return null;
+  const r = entry.phrase ? translatePhrase(d, entry.word) : translate(d, entry.word);
+  if (r) return r.gloss;
   return null;
 }
 
@@ -63,11 +73,12 @@ export function renderVocab(view) {
 
   async function loadDicts() {
     if (dicts) return dicts;
-    const [es, it] = await Promise.all([
-      loadDict('es').catch((e) => { console.warn('es dict failed', e); return null; }),
+    const [it, es, fr] = await Promise.all([
       loadDict('it').catch((e) => { console.warn('it dict failed', e); return null; }),
+      loadDict('es').catch((e) => { console.warn('es dict failed', e); return null; }),
+      loadDict('fr').catch((e) => { console.warn('fr dict failed', e); return null; }),
     ]);
-    dicts = { es, it };
+    dicts = { it, es, fr };
     return dicts;
   }
 
@@ -118,7 +129,7 @@ export function renderVocab(view) {
       for (const g of [4, 3, 2, 1, 0]) {
         const group = shown
           .filter((e) => e.stage === g)
-          .sort((a, b) => a.key.localeCompare(b.key, undefined, { sensitivity: 'base' }));
+          .sort((a, b) => a.word.localeCompare(b.word, undefined, { sensitivity: 'base' }));
         if (!group.length) continue;
         parts.push(`<h3 class="vocab-group">${STAGE_NAMES[g]} <span class="vocab-group-count">· ${group.length}</span></h3>`);
         for (const e of group) {
@@ -128,7 +139,8 @@ export function renderVocab(view) {
             : '';
           parts.push(
             `<div class="vocab-row">
-              <span class="vocab-word${e.phrase ? ' phrase' : ''}">${esc(e.key)}</span>
+              <span class="vocab-word${e.phrase ? ' phrase' : ''}">${esc(e.word)}</span>
+              <span class="vocab-lang" title="Language">${esc(e.lang || '?')}</span>
               <span class="dot st${e.stage}"></span>
               ${gloss}
               ${customs}
@@ -194,8 +206,8 @@ export function renderVocab(view) {
     if (!picked.length) return;
     const cards = [];
     for (const w of picked) {
-      cards.push({ word: w.key, prompt: w.key, answer: w.english });
-      cards.push({ word: w.key, prompt: w.english, answer: w.key });
+      cards.push({ word: w.key, prompt: w.word, answer: w.english });
+      cards.push({ word: w.key, prompt: w.english, answer: w.word });
     }
     shuffle(cards);
     // never let the two directions of one word sit side by side
@@ -226,7 +238,7 @@ export function renderVocab(view) {
         setStage(key, newStage);
         const st = srsState(key);
         setSrs(key, Math.min(6, (st ? st.step : 0) + 1), Date.now());
-        session.advanced.push({ word: key, newStage });
+        session.advanced.push({ word: w.word, newStage });
       } else {
         setSrs(key, 0, Date.now());
       }
@@ -237,7 +249,7 @@ export function renderVocab(view) {
       const card = session.cards[session.idx];
       const rec = session.answers[card.word] || (session.answers[card.word] = { a: null, b: null });
       // direction: a = foreign→english, b = english→foreign
-      rec[card.prompt === words.get(card.word).key ? 'a' : 'b'] = knew;
+      rec[card.prompt === words.get(card.word).word ? 'a' : 'b'] = knew;
       if (rec.a !== null && rec.b !== null) commit(card.word);
       session.idx++;
       if (session.idx >= session.cards.length) showSummary();
@@ -270,7 +282,7 @@ export function renderVocab(view) {
       cardEl.innerHTML = `
         <div class="fc-prompt">${esc(card.prompt)}</div>
         <div class="fc-answer">${esc(card.answer)}</div>
-        <div class="fc-word muted small">${esc(words.get(card.word).key)}</div>
+        <div class="fc-word muted small">${esc(words.get(card.word).word)}</div>
         <div class="fc-buttons">
           <button class="btn ghost" id="fc-miss">✗ Didn't know</button>
           <button class="btn primary" id="fc-hit">✓ Knew it</button>

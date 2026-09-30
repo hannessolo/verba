@@ -10,6 +10,8 @@ import {
   removeCustomTranslation,
   IGNORE_STAGE,
   activePhrases,
+  scopeKey,
+  parseScopedKey,
 } from '../lib/store.js';
 import { loadDict, translate, translatePhrase } from '../lib/dict.js';
 import { tokenizeWithPhrases, phraseOccurrences, wordKeysInText } from '../lib/text.js';
@@ -89,7 +91,10 @@ function normalizePhraseKey(text) {
 // single-space-separated words, so such keys could never merge into the text
 // — they are translate-only.
 function isLearnableKey(key) {
-  return !key.includes(' ') || /^[\p{L}' ]+$/u.test(key);
+  // strip the language scope ("fr:la mancha" -> "la mancha") before checking
+  const p = parseScopedKey(key);
+  const bare = p ? p.key : key;
+  return !bare.includes(' ') || /^[\p{L}' ]+$/u.test(bare);
 }
 
 function uniqueWordsOf(book) {
@@ -99,9 +104,9 @@ function uniqueWordsOf(book) {
   // common path stays fast
   const phrases = activePhrases();
   for (const ch of book.chapters) {
-    for (const k of wordKeysInText(ch.text)) seen.add(k);
+    for (const k of wordKeysInText(ch.text)) seen.add(scopeKey(book.language, k));
     if (phrases.length)
-      for (const k of phraseOccurrences(ch.text, phrases)) seen.add(k);
+      for (const k of phraseOccurrences(ch.text, phrases)) seen.add(scopeKey(book.language, k));
   }
   const words = [...seen];
   uniqueWordsCache.set(book.id, words);
@@ -568,7 +573,7 @@ export function renderReader(view, book) {
           const r = w.getBoundingClientRect();
           openPhrasePopup({
             text,
-            key: normalizePhraseKey(text),
+            key: scopeKey(book.language, normalizePhraseKey(text)),
             x: r.left + r.width / 2,
             y: r.bottom,
             selEls: words,
@@ -610,7 +615,7 @@ export function renderReader(view, book) {
       suppressNextClick = true; // swallow the synthetic click after the drag
       openPhrasePopup({
         text,
-        key: normalizePhraseKey(text),
+        key: scopeKey(book.language, normalizePhraseKey(text)),
         x: e.clientX,
         y: e.clientY,
         selEls: words, // keep the span highlighted while the popup is open
@@ -675,7 +680,7 @@ export function renderReader(view, book) {
       suppressNextClick = true; // so the synthesized click doesn't clobber the popup
       openPhrasePopup({
         text,
-        key: normalizePhraseKey(text),
+        key: scopeKey(book.language, normalizePhraseKey(text)),
         x: t.clientX,
         y: t.clientY,
         selEls: words,
@@ -736,7 +741,7 @@ export function renderReader(view, book) {
         : null;
     const stage = getStage(key);
     const result = dict
-      ? isPhrase ? translatePhrase(dict, key) : translate(dict, text)
+      ? isPhrase ? translatePhrase(dict, text) : translate(dict, text)
       : null;
     const gtUrl = `https://translate.google.com/?sl=${encodeURIComponent(book.language)}&tl=en&text=${encodeURIComponent(text)}&op=translate`;
     const advLabel =
@@ -842,7 +847,7 @@ export function renderReader(view, book) {
       if (!popup || !current) return;
       const phrase = current.key.includes(' ');
       const result = dict
-        ? phrase ? translatePhrase(dict, current.key) : translate(dict, current.text)
+        ? phrase ? translatePhrase(dict, current.text) : translate(dict, current.text)
         : null;
       const wrap = document.createElement('div');
       // translate-only popups render no customs block (unreachable anyway)
@@ -918,7 +923,7 @@ export function renderReader(view, book) {
         lastClickedWordEl = nextWordEl; // shift+click anchors from the new end
         openPhrasePopup({
           text,
-          key: normalizePhraseKey(text),
+          key: scopeKey(book.language, normalizePhraseKey(text)),
           x: r.left + r.width / 2,
           y: r.bottom,
           selEls: words,
@@ -936,7 +941,7 @@ export function renderReader(view, book) {
         const r = el.getBoundingClientRect();
         openPhrasePopup({
           text: sentence,
-          key: normalizePhraseKey(sentence),
+          key: scopeKey(book.language, normalizePhraseKey(sentence)),
           x: r.left + r.width / 2,
           y: r.bottom,
         });
@@ -1031,7 +1036,7 @@ export function renderReader(view, book) {
 
   function paraToHtml(para) {
     // active phrases merge into single .w units (no-op when none are active)
-    const frags = tokenizeWithPhrases(para, activePhrasesCache);
+    const frags = tokenizeWithPhrases(para, activePhrasesCache, book.language);
     let html = '';
     for (const f of frags) {
       if (f.type === 'text') html += esc(f.value);

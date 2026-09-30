@@ -126,23 +126,31 @@ function escapeRegExp(s) {
 
 /**
  * Like tokenize(), but also merges occurrences of active phrases into single
- * word fragments. phraseKeys must already be sorted longest-first (see
- * store.activePhrases) so that "a través de" wins over "a través". A phrase
- * only matches a run of single-space-separated word fragments (the separator
- * must be exactly one ' ' text fragment), which keeps the display text of the
- * merged unit identical to what phraseOccurrences will re-find later.
- * If phraseKeys is empty this returns tokenize() output (fast path).
+ * word fragments. phraseKeys must be bare (un-scoped) and sorted longest-first
+ * (see store.activePhrases) so that "a través de" wins over "a través". A
+ * phrase only matches a run of single-space-separated word fragments (the
+ * separator must be exactly one ' ' text fragment), which keeps the display
+ * text of the merged unit identical to what phraseOccurrences will re-find
+ * later. If `lang` is given, every word fragment key is scoped to that
+ * language ("le" -> "fr:le") and a matched phrase's key is scoped too
+ * ("la mancha" -> "fr:la mancha"), so the fragment keys line up with the
+ * language-scoped stages the reader stores. If phraseKeys is empty this
+ * returns tokenize() output (fast path, still scoped when lang is set).
  */
-export function tokenizeWithPhrases(paragraph, phraseKeys) {
+export function tokenizeWithPhrases(paragraph, phraseKeys, lang) {
   const frags = tokenize(paragraph);
+  const scope = (k) => (lang ? `${lang}:${k}` : k);
+  if (lang) for (const f of frags) if (f.type === 'word') f.key = scope(f.key);
   if (!phraseKeys || !phraseKeys.length) return frags;
-  // group candidates by first word key; input order (longest-first) is kept
+  // group candidates by first word key (scoped to match the scoped fragment
+  // keys); input order (longest-first) is kept
   const byFirst = new Map();
   for (const phrase of phraseKeys) {
     const keys = phrase.split(' ');
     if (keys.length < 2) continue;
-    if (!byFirst.has(keys[0])) byFirst.set(keys[0], []);
-    byFirst.get(keys[0]).push({ phrase, keys });
+    const first = scope(keys[0]);
+    if (!byFirst.has(first)) byFirst.set(first, []);
+    byFirst.get(first).push({ phrase, keys });
   }
   // greedy left-to-right scan
   const out = [];
@@ -161,7 +169,7 @@ export function tokenizeWithPhrases(paragraph, phraseKeys) {
           const sep = frags[j];
           const w = frags[j + 1];
           if (!sep || sep.type !== 'text' || sep.value !== ' ' ||
-              !w || w.type !== 'word' || w.key !== keys[k]) {
+              !w || w.type !== 'word' || w.key !== scope(keys[k])) {
             ok = false;
             break;
           }
@@ -170,7 +178,7 @@ export function tokenizeWithPhrases(paragraph, phraseKeys) {
         if (ok) {
           let value = '';
           for (let k = i; k < j; k++) value += frags[k].value;
-          out.push({ type: 'word', value, key: phrase });
+          out.push({ type: 'word', value, key: scope(phrase) });
           i = j;
           matched = true;
           break;

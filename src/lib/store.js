@@ -4,6 +4,29 @@
 
 import { wordKeysInText, phraseOccurrences } from './text.js';
 
+// Supported language codes. Word/phrase keys are scoped by the source
+// language ("es:le" vs "fr:le") so that learning a word in one language never
+// leaks into another — a bare word can be a different (or unknown) word in a
+// different language.
+export const LANGS = ['it', 'es', 'fr'];
+
+/** Scope a bare word/phrase key to a language: "le" + "es" -> "es:le". */
+export function scopeKey(lang, key) {
+  return `${lang}:${key}`;
+}
+
+/**
+ * Split a scoped key back into { lang, key }. Returns null when the key is not
+ * scoped (a legacy bare key), so callers can tell the two formats apart.
+ */
+export function parseScopedKey(k) {
+  const i = k.indexOf(':');
+  if (i <= 0) return null;
+  const lang = k.slice(0, i);
+  if (!LANGS.includes(lang)) return null;
+  return { lang, key: k.slice(i + 1) };
+}
+
 // A word can be in one of the learning stages 0-4, or the special
 // "ignore" state. Ignored words (e.g. proper names you don't want to learn)
 // are not highlighted and are excluded from progress totals.
@@ -34,6 +57,91 @@ export const store = {
   // word key -> spaced-repetition state { step: 0-6, last: epochMs }
   srs: read(SRS_KEY, {}),
 };
+
+// One-time migration of the legacy (un-scoped) word keys to language-scoped
+// keys, using the user's books to work out each word's language. Idempotent:
+// keys that already carry a valid "lang:" prefix are left untouched.
+//
+// Attribution rules for a legacy bare key:
+//   - appears in exactly one language's books  -> that language.
+//   - appears in several languages' books      -> all of them. The old data
+//     never recorded which language a word was learned in, and a word spelled
+//     identically across your languages ("le", "la", "de", …) is genuinely
+//     ambiguous, so we keep it known in every language it occurs in. That is
+//     lossless; going forward, learning is strictly per-language so the
+//     cross-language leak can't recur, and a user who wants a fresh start on
+//     e.g. French "le" can now reset it per-language without touching Spanish.
+//   - appears in no book (its book was removed) -> every supported language,
+//     which always includes the true one (lossless) and can't leak into a
+//     live book (a word only renders in a book of its own language, where the
+//     book-based entry already exists). The only cost is extra rows in the
+//     vocab list for words whose book was deleted — rare and recoverable.
+//
+// The same helper re-scopes bare keys found in older exported files on import.
+function booksLangMap(books) {
+  const map = new Map(); // bareKey -> Set<lang>
+  const add = (key, lang) => {
+    if (!map.has(key)) map.set(key, new Set());
+    map.get(key).add(lang);
+  };
+  // multi-word keys from any word map are candidate phrases to match against
+  // book text (a phrase may have a custom translation or srs state without
+  // ever having its stage set)
+  const phraseSet = new Set();
+  for (const m of [store.stages, store.translations, store.srs]) {
+    for (const k of Object.keys(m)) {
+      if (k.includes(' ')) {
+        const p = parseScopedKey(k);
+        phraseSet.add(p ? p.key : k);
+      }
+    }
+  }
+  const phraseKeys = [...phraseSet];
+  for (const b of books) {
+    for (const ch of b.chapters) {
+      for (const k of wordKeysInText(ch.text)) add(k, b.language);
+      if (phraseKeys.length)
+        for (const k of phraseOccurrences(ch.text, phraseKeys)) add(k, b.language);
+    }
+  }
+  return map;
+}
+
+function scopedKeysFor(map, langMap) {
+  const out = {};
+  for (const [k, v] of Object.entries(map)) {
+    const p = parseScopedKey(k);
+    if (p) out[k] = v; // already scoped
+    else {
+      // Words that appear in one or more books are attributed to exactly those
+      // languages. Words in no book (their book was removed) have no language
+      // signal left, so scope them to every supported language: that always
+      // includes the true one (lossless) and can't leak into a live book, since
+      // a word only renders in a book of its own language where the book-based
+      // entry already exists. The only cost is extra rows in the vocab list for
+      // words whose book was deleted — a rare, recoverable edge case.
+      const langs = langMap.get(k) && langMap.get(k).size ? [...langMap.get(k)] : LANGS;
+      for (const l of langs) out[scopeKey(l, k)] = v;
+    }
+  }
+  return out;
+}
+
+// Run the migration before anything reads word state. Only touches storage
+// when there is at least one legacy (bare) key, so returning users pay nothing.
+// The books→language map is computed once and shared across all three word
+// maps (stages/translations/srs) to avoid scanning every book three times.
+(function migrateLegacyKeys() {
+  const hasLegacy = (m) => Object.keys(m).some((k) => !parseScopedKey(k));
+  if (!hasLegacy(store.stages) && !hasLegacy(store.translations) && !hasLegacy(store.srs)) return;
+  const langMap = booksLangMap(store.books);
+  store.stages = scopedKeysFor(store.stages, langMap);
+  store.translations = scopedKeysFor(store.translations, langMap);
+  store.srs = scopedKeysFor(store.srs, langMap);
+  saveStages();
+  saveTranslations();
+  saveSrs();
+})();
 
 export const settings = read(SETTINGS_KEY, { pageSize: 400 });
 const pagePositions = read(PAGES_KEY, {});
@@ -119,16 +227,22 @@ export function setStage(word, stage) {
 }
 
 /**
- * Stage keys that contain a space and have stage > 0 — i.e. phrases the user
- * has marked seen (or ignored: IGNORE_STAGE also merges, just without
- * highlight). Stage 0 = not saved / un-merged. Sorted by word count
- * descending (longest first) so "a través de" beats "a través".
- * Sentences marked seen are included too: they merge on exact re-occurrence.
+ * Bare (language-stripped) phrase keys the user has marked seen (stage > 0):
+ * keys that contain a space and are not at stage 0. Phrases the user marked
+ * ignored (IGNORE_STAGE) are included too — they merge on re-occurrence, just
+ * without a highlight. Stage 0 = not saved / un-merged. Sentences marked seen
+ * are included too: they merge on exact re-occurrence. Sorted by word count
+ * descending (longest first) so "a través de" beats "a través". Bare keys are
+ * what the text-scan helpers (phraseOccurrences) and tokenizeWithPhrases
+ * expect; the reader scopes them to the book's language when rendering.
  */
 export function activePhrases() {
   const out = [];
   for (const [key, s] of Object.entries(store.stages)) {
-    if (key.includes(' ') && s > 0) out.push(key);
+    if (s <= 0) continue;
+    const p = parseScopedKey(key);
+    if (p && p.key.includes(' ')) out.push(p.key);
+    else if (key.includes(' ')) out.push(key); // safety: legacy bare phrase
   }
   out.sort((a, b) => b.split(' ').length - a.split(' ').length);
   return out;
@@ -201,7 +315,7 @@ export function setSrs(key, step, last) {
 export function exportSnapshot() {
   return {
     app: 'verba',
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     books: store.books,
     stages: store.stages,
@@ -250,14 +364,27 @@ export function mergeImport(data) {
     if (stats.pagesMerged) savePages();
   }
 
+  // Older exports key words as bare words (no "lang:" prefix). Re-scope them
+  // against the current books — the imported books were merged above, so a
+  // freshly imported book can attribute its own words. Modern exports carry
+  // already-scoped keys and merge directly.
+  const importLangMap = booksLangMap(store.books);
+  const scopedKeys = (key) => {
+    if (parseScopedKey(key)) return [key];
+    const set = importLangMap.get(key);
+    return [...(set && set.size ? set : LANGS)].map((l) => scopeKey(l, key));
+  };
+
   if (data.stages && typeof data.stages === 'object') {
     for (const [word, stage] of Object.entries(data.stages)) {
       const s = Math.round(Number(stage));
       if (Number.isNaN(s) || s < 0 || s > IGNORE_STAGE) continue;
-      const local = store.stages[word] ?? 0;
-      if (s > local) {
-        store.stages[word] = s;
-        stats.wordsAdvanced++;
+      for (const k of scopedKeys(word)) {
+        const local = store.stages[k] ?? 0;
+        if (s > local) {
+          store.stages[k] = s;
+          stats.wordsAdvanced++;
+        }
       }
     }
     if (stats.wordsAdvanced) saveStages();
@@ -270,20 +397,22 @@ export function mergeImport(data) {
       const clean = list
         .filter((t) => typeof t === 'string' && t.trim())
         .map((t) => t.trim().replace(/\s+/g, ' '));
-      const local = store.translations[word] || [];
-      // union, case-insensitive: import order first, then local-only entries
-      const seen = new Set();
-      const merged = [];
-      for (const t of [...clean, ...local]) {
-        const k = t.toLowerCase();
-        if (seen.has(k)) continue;
-        seen.add(k);
-        merged.push(t);
-      }
-      if (merged.length !== local.length) {
-        store.translations[word] = merged;
-        stats.translationsAdded += merged.length - local.length;
-        transChanged = true;
+      for (const k of scopedKeys(word)) {
+        const local = store.translations[k] || [];
+        // union, case-insensitive: import order first, then local-only entries
+        const seen = new Set();
+        const merged = [];
+        for (const t of [...clean, ...local]) {
+          const key = t.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          merged.push(t);
+        }
+        if (merged.length !== local.length) {
+          store.translations[k] = merged;
+          stats.translationsAdded += merged.length - local.length;
+          transChanged = true;
+        }
       }
     }
     if (transChanged) saveTranslations();
@@ -298,16 +427,18 @@ export function mergeImport(data) {
       const step = Number(entry.step);
       const last = Number(entry.last);
       if (!Number.isInteger(step) || step < 0 || step > 6 || !Number.isFinite(last)) continue;
-      const local = store.srs[word];
-      const better =
-        !local ||
-        !Number.isInteger(local.step) ||
-        step > local.step ||
-        (step === local.step && last > local.last);
-      if (better) {
-        store.srs[word] = { step, last };
-        stats.srsUpdated++;
-        srsChanged = true;
+      for (const k of scopedKeys(word)) {
+        const local = store.srs[k];
+        const better =
+          !local ||
+          !Number.isInteger(local.step) ||
+          step > local.step ||
+          (step === local.step && last > local.last);
+        if (better) {
+          store.srs[k] = { step, last };
+          stats.srsUpdated++;
+          srsChanged = true;
+        }
       }
     }
     if (srsChanged) saveSrs();
@@ -324,9 +455,9 @@ export function uniqueWords(book) {
   // common path (no phrases saved yet) stays fast
   const phrases = activePhrases();
   for (const ch of book.chapters) {
-    for (const k of wordKeysInText(ch.text)) seen.add(k);
+    for (const k of wordKeysInText(ch.text)) seen.add(scopeKey(book.language, k));
     if (phrases.length)
-      for (const k of phraseOccurrences(ch.text, phrases)) seen.add(k);
+      for (const k of phraseOccurrences(ch.text, phrases)) seen.add(scopeKey(book.language, k));
   }
   return [...seen];
 }
@@ -340,6 +471,7 @@ export function bookStats(book) {
   const ignored = new Set();
   const unique = uniqueWords(book);
   for (const w of unique) {
+    // uniqueWords already returns language-scoped keys
     const s = getStage(w);
     if (s === IGNORE_STAGE) ignored.add(w);
     else counts[s]++;
