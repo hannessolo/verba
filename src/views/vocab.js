@@ -61,8 +61,9 @@ export function renderVocab(view) {
   let dicts = null; // { es, it } once settled (either may be null on failure)
   let entries = null; // listWords + english/custom, recomputed on each list render
   let filter = 'all';
-  // Language the flashcard session draws from ('all' or one of LANGS).
-  // Persisted so the user's choice survives navigation/reload.
+  // Language filter for the vocab list AND the language the flashcard
+  // session draws from ('all' or one of LANGS). Persisted so the user's
+  // choice survives navigation/reload.
   let fcLang = settings.flashcardLang === 'all' || LANGS.includes(settings.flashcardLang)
     ? settings.flashcardLang
     : 'all';
@@ -117,8 +118,8 @@ export function renderVocab(view) {
         <button class="vocab-filter" data-f="known">Known (4)</button>
         <button class="vocab-filter" data-f="phrases">Phrases</button>
         <span class="header-spacer"></span>
-        <label class="fc-lang-label muted" for="fc-lang">Review</label>
-        <select id="fc-lang" class="fc-lang-select" title="Language to review flashcards for">
+        <label class="fc-lang-label muted" for="fc-lang">Language</label>
+        <select id="fc-lang" class="fc-lang-select" title="Filter the list and flashcard review by language">
           <option value="all"${fcLang === 'all' ? ' selected' : ''}>All languages</option>
           ${langs.map((l) => `<option value="${l}"${fcLang === l ? ' selected' : ''}>${LANG_NAMES[l] || l}</option>`).join('')}
         </select>
@@ -146,6 +147,7 @@ export function renderVocab(view) {
         return;
       }
       const shown = entries.filter((e) => {
+        if (fcLang !== 'all' && e.lang !== fcLang) return false;
         if (filter === 'learning') return e.stage <= 3;
         if (filter === 'known') return e.stage === 4;
         if (filter === 'phrases') return e.phrase;
@@ -188,7 +190,7 @@ export function renderVocab(view) {
     view.querySelector('#fc-lang').addEventListener('change', (e) => {
       fcLang = e.target.value;
       saveSettings({ flashcardLang: fcLang });
-      updateFcButton();
+      updateList();
     });
 
     entries = words.map((w) => ({
