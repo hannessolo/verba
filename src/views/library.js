@@ -1,9 +1,7 @@
-import { store, addBook, removeBook, bookStats } from '../lib/store.js';
+import { store, addBook, removeBook, bookStats, LANG_NAMES } from '../lib/store.js';
 import { parseEpub } from '../lib/epub.js';
 import { detectLanguage, toParagraphs } from '../lib/text.js';
 import { downloadData, importFromFile, importSummary } from '../lib/transfer.js';
-
-const LANG_NAMES = { it: 'Italian', es: 'Spanish', fr: 'French' };
 
 export function renderLibrary(view) {
   view.innerHTML = `

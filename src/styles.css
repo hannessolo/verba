@@ -558,6 +558,19 @@ button.wp-gt {
 }
 .vocab-filter:hover { border-color: var(--accent); color: var(--ink); }
 .vocab-filter.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.fc-lang-label { font-size: 13px; white-space: nowrap; }
+.fc-lang-select {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.fc-lang-select:hover { border-color: var(--accent); }
+.fc-lang-select:focus { outline: none; border-color: var(--accent); }
 .vocab-group {
   margin: 22px 0 4px;
   font-size: 13px;
@@ -602,6 +615,18 @@ button.wp-gt {
 .flashcards { max-width: 640px; margin: 0 auto; padding: 40px 20px 80px; }
 .fc-top { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }
 .fc-progress { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.fc-lang-badge {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-radius: 999px;
+  padding: 1px 7px;
+  background: #eef3ee;
+  color: var(--accent);
+  border: 1px solid #d8e4da;
+  white-space: nowrap;
+}
 .fc-top .progress-bar { flex: 1; height: 4px; }
 .fc-card { text-align: center; }
 .fc-prompt {

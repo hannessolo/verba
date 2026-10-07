@@ -12,6 +12,7 @@ import {
   activePhrases,
   scopeKey,
   parseScopedKey,
+  LANG_NAMES,
 } from '../lib/store.js';
 import { loadDict, translate, translatePhrase } from '../lib/dict.js';
 import { tokenizeWithPhrases, phraseOccurrences, wordKeysInText } from '../lib/text.js';
@@ -67,8 +68,6 @@ function customsBlockHtml(key) {
   });
   return `<div class="wp-customs" id="wp-customs">${inner}</div>`;
 }
-const LANG_NAMES = { it: 'Italian', es: 'Spanish', fr: 'French' };
-
 let uniqueWordsCache = new Map(); // bookId -> [wordKeys]
 
 // phrase spans longer than this are capped (guard against accidental drags;

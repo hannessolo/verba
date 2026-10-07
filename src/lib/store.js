@@ -9,6 +9,7 @@ import { wordKeysInText, phraseOccurrences } from './text.js';
 // leaks into another — a bare word can be a different (or unknown) word in a
 // different language.
 export const LANGS = ['it', 'es', 'fr'];
+export const LANG_NAMES = { it: 'Italian', es: 'Spanish', fr: 'French' };
 
 /** Scope a bare word/phrase key to a language: "le" + "es" -> "es:le". */
 export function scopeKey(lang, key) {

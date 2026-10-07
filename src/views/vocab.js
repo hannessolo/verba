@@ -1,4 +1,4 @@
-import { store, setStage, setSrs, srsState, parseScopedKey, IGNORE_STAGE } from '../lib/store.js';
+import { store, setStage, setSrs, srsState, parseScopedKey, IGNORE_STAGE, LANGS, LANG_NAMES, settings, saveSettings } from '../lib/store.js';
 import { loadDict, translate, translatePhrase } from '../lib/dict.js';
 
 const STAGE_NAMES = ['New', 'Saw it', 'Getting it', 'Almost known', 'Known'];
@@ -61,7 +61,19 @@ export function renderVocab(view) {
   let dicts = null; // { es, it } once settled (either may be null on failure)
   let entries = null; // listWords + english/custom, recomputed on each list render
   let filter = 'all';
+  // Language the flashcard session draws from ('all' or one of LANGS).
+  // Persisted so the user's choice survives navigation/reload.
+  let fcLang = settings.flashcardLang === 'all' || LANGS.includes(settings.flashcardLang)
+    ? settings.flashcardLang
+    : 'all';
   let onKey = null;
+
+  // Languages the user actually has words for (in LANGS order). Legacy
+  // unscoped keys (lang === null) only count toward "all".
+  function langsInWords(words) {
+    const present = new Set(words.map((w) => w.lang).filter(Boolean));
+    return LANGS.filter((l) => present.has(l));
+  }
 
   // Attach the document-level keydown listener (installed when a flashcard
   // session starts); renderVocab's returned cleanup removes it.
@@ -88,6 +100,10 @@ export function renderVocab(view) {
     setKeyHandler(null);
     const words = listWords();
     const ignored = Object.values(store.stages).filter((s) => s === IGNORE_STAGE).length;
+    const langs = langsInWords(words);
+    // A saved language with no words left (e.g. after deleting a book's
+    // words) can't be reviewed — fall back to "all" so the button works.
+    if (fcLang !== 'all' && !langs.includes(fcLang)) fcLang = 'all';
 
     view.innerHTML = `
     <section class="vocab">
@@ -101,19 +117,29 @@ export function renderVocab(view) {
         <button class="vocab-filter" data-f="known">Known (4)</button>
         <button class="vocab-filter" data-f="phrases">Phrases</button>
         <span class="header-spacer"></span>
+        <label class="fc-lang-label muted" for="fc-lang">Review</label>
+        <select id="fc-lang" class="fc-lang-select" title="Language to review flashcards for">
+          <option value="all"${fcLang === 'all' ? ' selected' : ''}>All languages</option>
+          ${langs.map((l) => `<option value="${l}"${fcLang === l ? ' selected' : ''}>${LANG_NAMES[l] || l}</option>`).join('')}
+        </select>
         <button class="btn primary" id="start-fc" disabled>Start flashcards (0)</button>
       </div>
       <div id="vocab-body"><p class="muted">Loading dictionaries…</p></div>
     </section>`;
 
-    const updateList = () => {
-      const body = view.querySelector('#vocab-body');
+    const updateFcButton = () => {
       const fcBtn = view.querySelector('#start-fc');
-      if (!body || !fcBtn) return; // navigated away mid-load
-      const eligible = entries.filter((e) => e.english);
+      if (!fcBtn) return; // navigated away mid-load
+      const eligible = entries.filter((e) => e.english && (fcLang === 'all' || e.lang === fcLang));
       fcBtn.textContent = `Start flashcards (${Math.min(10, eligible.length)})`;
       fcBtn.disabled = !eligible.length;
-      fcBtn.onclick = () => startSession(eligible);
+      fcBtn.onclick = () => startSession(eligible, fcLang);
+    };
+
+    const updateList = () => {
+      const body = view.querySelector('#vocab-body');
+      if (!body) return;
+      updateFcButton();
 
       if (!entries.length) {
         body.innerHTML = '<p class="muted">No words yet — read a book and tap the words you don\'t know.</p>';
@@ -159,6 +185,12 @@ export function renderVocab(view) {
       });
     }
 
+    view.querySelector('#fc-lang').addEventListener('change', (e) => {
+      fcLang = e.target.value;
+      saveSettings({ flashcardLang: fcLang });
+      updateFcButton();
+    });
+
     entries = words.map((w) => ({
       ...w,
       english: englishFor(w, dicts),
@@ -201,7 +233,7 @@ export function renderVocab(view) {
     return out;
   }
 
-  function startSession(eligible) {
+  function startSession(eligible, lang) {
     const picked = pickWords(eligible, 10);
     if (!picked.length) return;
     const cards = [];
@@ -264,6 +296,7 @@ export function renderVocab(view) {
       <section class="flashcards">
         <div class="fc-top">
           <span class="fc-progress">${session.idx + 1} / ${n}</span>
+          ${lang !== 'all' ? `<span class="fc-lang-badge" title="Language">${LANG_NAMES[lang] || lang}</span>` : ''}
           <div class="progress-bar"><div class="progress-fill" style="width:${Math.round((session.idx / n) * 100)}%"></div></div>
         </div>
         <div class="fc-card">
