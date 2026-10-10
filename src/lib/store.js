@@ -147,6 +147,26 @@ function scopedKeysFor(map, langMap) {
 export const settings = read(SETTINGS_KEY, { pageSize: 400 });
 const pagePositions = read(PAGES_KEY, {});
 
+// ---- advanced mode (per language) ----
+// In "advanced mode" a language's words count as KNOWN by default: they
+// render without highlights (stage 4) and count as known in progress, but
+// they are NOT stored in the stage map — the dictionary must stay small.
+// Only words the user marks "unknown" (stage 0) get an entry, and from
+// there they are learned exactly like in normal mode (stages 0-4, colors,
+// flashcards, custom translations). The per-language flags live in settings.
+if (!settings.advanced || typeof settings.advanced !== 'object' || Array.isArray(settings.advanced))
+  settings.advanced = {};
+for (const l of LANGS) if (typeof settings.advanced[l] !== 'boolean') settings.advanced[l] = false;
+
+export function isAdvancedMode(lang) {
+  return !!settings.advanced[lang];
+}
+
+export function setAdvancedMode(lang, on) {
+  settings.advanced[lang] = !!on;
+  saveSettings({ advanced: { ...settings.advanced } });
+}
+
 export function saveBooks() {
   try {
     localStorage.setItem(BOOKS_KEY, JSON.stringify(store.books));
@@ -216,13 +236,25 @@ export function getPagePosition(bookId) {
 // ---- word stages (global word list) ----
 
 export function getStage(word) {
-  return store.stages[word] ?? 0;
+  const explicit = store.stages[word];
+  if (explicit !== undefined) return explicit;
+  // advanced mode: untracked words of that language count as known
+  const p = parseScopedKey(word);
+  if (p && isAdvancedMode(p.lang)) return 4;
+  return 0;
 }
 
 export function setStage(word, stage) {
   // valid values: learning stages 0-4 and IGNORE_STAGE (5)
   stage = Math.round(stage);
   if (stage < 0 || stage > IGNORE_STAGE) stage = 0;
+  // advanced mode: untracked words are known by default. Stages 1-4 must
+  // not be stored for them, or the dictionary would fill up with words the
+  // user never learned. Only marking "unknown" (0) or ignoring (5) creates
+  // an entry for an untracked word.
+  const p = parseScopedKey(word);
+  if (p && isAdvancedMode(p.lang) && store.stages[word] === undefined &&
+      stage !== 0 && stage !== IGNORE_STAGE) return;
   store.stages[word] = stage;
   saveStages();
 }

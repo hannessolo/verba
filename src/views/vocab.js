@@ -1,4 +1,4 @@
-import { store, setStage, setSrs, srsState, parseScopedKey, IGNORE_STAGE, LANGS, LANG_NAMES, settings, saveSettings } from '../lib/store.js';
+import { store, setStage, setSrs, srsState, parseScopedKey, IGNORE_STAGE, LANGS, LANG_NAMES, settings, saveSettings, isAdvancedMode } from '../lib/store.js';
 import { loadDict, translate, translatePhrase } from '../lib/dict.js';
 
 const STAGE_NAMES = ['New', 'Saw it', 'Getting it', 'Almost known', 'Known'];
@@ -101,6 +101,7 @@ export function renderVocab(view) {
     setKeyHandler(null);
     const words = listWords();
     const ignored = Object.values(store.stages).filter((s) => s === IGNORE_STAGE).length;
+    const advLangs = LANGS.filter((l) => isAdvancedMode(l));
     const langs = langsInWords(words);
     // A saved language with no words left (e.g. after deleting a book's
     // words) can't be reviewed — fall back to "all" so the button works.
@@ -112,6 +113,11 @@ export function renderVocab(view) {
         <h2 class="vocab-title">Your vocabulary</h2>
         <span class="vocab-counts muted">${words.length} words · ${words.filter((w) => w.stage === 4).length} known · ${words.filter((w) => w.phrase).length} phrases · ${ignored} ignored</span>
       </div>
+      ${
+        advLangs.length
+          ? `<p class="vocab-adv muted small">Advanced mode on for ${advLangs.map((l) => LANG_NAMES[l]).join(', ')} — words count as known by default and appear here only after you mark them unknown in the reader.</p>`
+          : ''
+      }
       <div class="vocab-filters">
         <button class="vocab-filter active" data-f="all">All</button>
         <button class="vocab-filter" data-f="learning">Learning (0-3)</button>

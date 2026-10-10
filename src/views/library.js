@@ -1,4 +1,4 @@
-import { store, addBook, removeBook, bookStats, LANG_NAMES } from '../lib/store.js';
+import { store, addBook, removeBook, bookStats, LANGS, LANG_NAMES, isAdvancedMode, setAdvancedMode } from '../lib/store.js';
 import { parseEpub } from '../lib/epub.js';
 import { detectLanguage, toParagraphs } from '../lib/text.js';
 import { downloadData, importFromFile, importSummary } from '../lib/transfer.js';
@@ -36,6 +36,13 @@ export function renderLibrary(view) {
           <button class="btn ghost" id="import-data" title="Merge a previously exported JSON file into this library">⬆ Import data</button>
           <input type="file" id="import-data-input" accept=".json,application/json" hidden />
         </div>
+        <div class="data-row">
+          <span class="muted small">Advanced mode:</span>
+          ${LANGS.map(
+            (l) =>
+              `<button class="btn ghost adv-toggle${isAdvancedMode(l) ? ' on' : ''}" data-adv-lang="${l}" type="button" title="All ${LANG_NAMES[l]} words count as known by default; only words you mark unknown are learned">${LANG_NAMES[l]}: ${isAdvancedMode(l) ? 'on' : 'off'}</button>`
+          ).join('')}
+        </div>
       </div>
       <h2 class="books-title">Your library</h2>
       <div id="book-list" class="book-list"></div>
@@ -57,6 +64,36 @@ export function renderLibrary(view) {
       status.textContent = `Import failed: ${e.message}`;
     }
   });
+
+  // ---- advanced mode toggles (per language) ----
+  const syncAdvRow = () => {
+    for (const b of view.querySelectorAll('[data-adv-lang]')) {
+      const l = b.dataset.advLang;
+      b.textContent = `${LANG_NAMES[l]}: ${isAdvancedMode(l) ? 'on' : 'off'}`;
+      b.classList.toggle('on', isAdvancedMode(l));
+    }
+  };
+  for (const b of view.querySelectorAll('[data-adv-lang]')) {
+    b.addEventListener('click', () => {
+      const l = b.dataset.advLang;
+      if (!isAdvancedMode(l)) {
+        const ok = confirm(
+          `Enable advanced mode for ${LANG_NAMES[l]}?\n\n` +
+            'For this language, all words count as known by default: the text ' +
+            'shows no highlights, and words are not added to your vocabulary on ' +
+            'their own.\n\n' +
+            'Tap any word in the reader to mark it "unknown" — from there you ' +
+            'learn it through the stages (colors, flashcards) as usual. You ' +
+            'can turn advanced mode off again at any time; marked words keep ' +
+            'their progress.'
+        );
+        if (!ok) return;
+      }
+      setAdvancedMode(l, !isAdvancedMode(l));
+      syncAdvRow();
+      renderBookList(view); // progress bars change with the mode
+    });
+  }
 
   // ---- export / import ----
   view.querySelector('#export-data').addEventListener('click', downloadData);

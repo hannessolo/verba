@@ -1,8 +1,11 @@
 import {
+  store,
   getStage,
   setStage,
   settings,
   saveSettings,
+  isAdvancedMode,
+  setAdvancedMode,
   getPagePosition,
   savePagePosition,
   getCustomTranslations,
@@ -136,6 +139,7 @@ export function renderReader(view, book) {
           <h2 class="side-title">${esc(book.title)}</h2>
           ${book.author ? `<div class="side-author">${esc(book.author)}</div>` : ''}
           <div class="badge lang">${LANG_NAMES[book.language] || book.language} → English</div>
+          <button class="btn ghost adv-toggle" id="adv-toggle" type="button" title="All words count as known by default; only words you mark unknown are learned">Advanced mode: off</button>
           <div id="dict-status" class="muted small">Loading offline dictionary…</div>
         </div>
         <div class="side-card">
@@ -147,6 +151,12 @@ export function renderReader(view, book) {
         </div>
         <div class="side-card side-help">
           <h3>How it works</h3>
+          <p class="muted small" id="adv-help" hidden>
+            <b>Advanced mode:</b> every word counts as known by default — no
+            highlights, and words are not added to your vocabulary on their
+            own. Tap any word to mark it <b>unknown</b>; from there it learns
+            through the stages exactly like in normal mode.
+          </p>
           <p class="muted small">
             Click any highlighted word to see its translation and set its stage.
             Words fade out of the highlight as you learn them; at stage&nbsp;4 they
@@ -375,6 +385,41 @@ export function renderReader(view, book) {
     scrollToText();
   });
 
+  // ---- advanced mode toggle (per language) ----
+  const advBtn = view.querySelector('#adv-toggle');
+  const mobileHint = view.querySelector('.mobile-hint');
+  const MOBILE_HINT_DEFAULT = mobileHint.textContent;
+  function syncAdvToggle() {
+    const on = isAdvancedMode(book.language);
+    advBtn.textContent = `Advanced mode: ${on ? 'on' : 'off'}`;
+    advBtn.classList.toggle('on', on);
+    view.querySelector('#adv-help').hidden = !on;
+    mobileHint.textContent = on
+      ? 'Advanced mode: tap any word to mark it unknown.'
+      : MOBILE_HINT_DEFAULT;
+  }
+  syncAdvToggle();
+  advBtn.addEventListener('click', () => {
+    const on = isAdvancedMode(book.language);
+    if (!on) {
+      const ok = confirm(
+        `Enable advanced mode for ${LANG_NAMES[book.language]}?\n\n` +
+          'For this language, all words count as known by default: the text ' +
+          'shows no highlights, and words are not added to your vocabulary on ' +
+          'their own.\n\n' +
+          'Tap any word to mark it "unknown" — from there you learn it through ' +
+          'the stages (colors, flashcards) as usual. You can turn advanced ' +
+          'mode off again at any time; marked words keep their progress.'
+      );
+      if (!ok) return;
+    }
+    setAdvancedMode(book.language, !on);
+    syncAdvToggle();
+    closePopup();
+    renderCurrentPage();
+    updateProgress(view, book);
+  });
+
   // ---- word popup ----
   let popup = null;
   // { key, text, el } of the word/phrase the popup is showing; el is null
@@ -388,6 +433,17 @@ export function renderReader(view, book) {
     }
     current = null;
     setSelection(null); // also clear any phrase drag-selection highlight
+  }
+
+  // Rebuild the popup in place for `current` (same position). Used in
+  // advanced mode after marking a word unknown/ignored: the popup variant
+  // changes (no stage UI -> full stage UI), which an in-place update can't
+  // express.
+  function reopenCurrent() {
+    if (!current || !popup) return;
+    const r = popup.getBoundingClientRect();
+    const { key, text, el } = current;
+    openPhrasePopup({ text, key, x: r.left + 24, y: r.top + 24, el });
   }
 
   // set the stage of the currently selected word/phrase (updates popup, text, progress)
@@ -429,10 +485,14 @@ export function renderReader(view, book) {
       ig.style.display = 'none';
     } else {
       // for phrases, stage 0 reads "Seen ✓": marking seen is what merges the
-      // phrase into the text (single words keep "Learn → stage 1")
+      // phrase into the text (single words keep "Learn → stage 1"); in
+      // advanced mode a stage-4 word offers "Mark as unknown" again
+      const advMode = isAdvancedMode(book.language);
       adv.textContent =
-        s === 4 ? 'Known ✓' : s === 0 && isPhrase ? 'Seen ✓' : `Learn → stage ${s + 1}`;
-      adv.disabled = s === 4;
+        s === 4
+          ? advMode ? 'Mark as unknown' : 'Known ✓'
+          : s === 0 && isPhrase ? 'Seen ✓' : `Learn → stage ${s + 1}`;
+      adv.disabled = s === 4 && !advMode;
       ig.style.display = '';
     }
   }
@@ -717,7 +777,12 @@ export function renderReader(view, book) {
   // hint; single words get a "⤢ sentence" button instead.
   function openPhrasePopup({ text, key, x, y, el = null, selEls = null }) {
     closePopup();
-    current = { key, text, el };
+    // advanced mode: a word/phrase with no stored stage entry counts as
+    // known by default — its popup offers "Mark as unknown" instead of the
+    // stage UI
+    const advUntracked =
+      isAdvancedMode(book.language) && store.stages[key] === undefined;
+    current = { key, text, el, advUntracked };
     if (el) lastClickedWordEl = el;
     if (selEls) setSelection(selEls); // keep the span highlighted while open
     const isPhrase = key.includes(' ');
@@ -747,7 +812,9 @@ export function renderReader(view, book) {
       stage === IGNORE_STAGE
         ? 'Un-ignore'
         : stage === 4
-          ? 'Known ✓'
+          ? isAdvancedMode(book.language)
+            ? 'Mark as unknown'
+            : 'Known ✓'
           : stage === 0 && isPhrase
             ? 'Seen ✓'
             : `Learn → stage ${stage + 1}`;
@@ -775,22 +842,31 @@ export function renderReader(view, book) {
         <input type="text" id="wp-trans-input" placeholder="Add your own translation…" autocomplete="off" />
         <button class="btn primary" type="submit">Add</button>
       </form>
-      <div class="wp-stages">
+      ${
+        advUntracked
+          ? ''
+          : `<div class="wp-stages">
         ${[0, 1, 2, 3, 4]
           .map(
             (s) => `<button class="wp-stage st${s}${s === stage ? ' active' : ''}" data-s="${s}" title="${STAGE_NAMES[s]}"></button>`
           )
           .join('')}
       </div>
-      <div class="wp-stage-label muted small">Stage: <b id="wp-stage-name">${stage === IGNORE_STAGE ? IGNORE_LABEL : STAGE_NAMES[stage]}</b></div>
+      <div class="wp-stage-label muted small">Stage: <b id="wp-stage-name">${stage === IGNORE_STAGE ? IGNORE_LABEL : STAGE_NAMES[stage]}</b></div>`
+      }
       <div class="wp-actions">
         <button class="btn primary" id="wp-advance">${advLabel}</button>
         <button class="btn ghost" id="wp-ignore"${stage === IGNORE_STAGE ? ' style="display:none"' : ''}>${stage === IGNORE_STAGE ? '' : 'Ignore word'}</button>
         <button class="btn ghost" id="wp-add-trans">＋ Add translation</button>
         <button class="btn ghost" id="wp-close">Close (Esc)</button>
       </div>
-      ${isPhrase ? '<div class="wp-hint muted small">Seen words merge into the text; set stage 0 to split them again.</div>' : ''}
+      ${
+        advUntracked
+          ? `<div class="wp-hint muted small">Advanced mode: this word counts as known by default. Mark it <b>unknown</b> to start learning it — stages, colors and flashcards work as usual from there.</div>
+      <div class="wp-keys">⏎ / 0 mark unknown · i ignore · t translate · a add trans · esc close</div>`
+          : `${isPhrase ? '<div class="wp-hint muted small">Seen words merge into the text; set stage 0 to split them again.</div>' : ''}
       <div class="wp-keys">0–4 stage · ⏎ advance · u back · n next · i ignore · t translate · a add trans · esc close</div>`
+      }`
           : `
       <div class="wp-actions">
         <button class="btn ghost" id="wp-close">Close (Esc)</button>
@@ -901,11 +977,16 @@ export function renderReader(view, book) {
       }
       popup.querySelector('#wp-advance').addEventListener('click', () => {
         const s = getStage(current.key);
-        applyStage(s === IGNORE_STAGE ? 0 : Math.min(4, s + 1));
+        const wasUntracked = current.advUntracked;
+        if (isAdvancedMode(book.language) && s === 4) applyStage(0); // mark unknown
+        else applyStage(s === IGNORE_STAGE ? 0 : Math.min(4, s + 1));
+        if (wasUntracked && !isTouch) reopenCurrent(); // show the learning UI
         if (isTouch) closePopup(); // fast tap loop: advance, then tap the next word
       });
       popup.querySelector('#wp-ignore').addEventListener('click', () => {
+        const wasUntracked = current.advUntracked;
         applyStage(IGNORE_STAGE);
+        if (wasUntracked && !isTouch) reopenCurrent();
         if (isTouch) closePopup();
       });
     }
@@ -973,17 +1054,25 @@ export function renderReader(view, book) {
         return;
       }
       if (!learnable) return; // 0–4 / Enter / u / i / a do nothing here
+      const advUntracked = current.advUntracked;
       if (/^[0-4]$/.test(e.key)) {
+        // advanced mode: untracked words can only be marked unknown (0)
+        if (advUntracked && e.key !== '0') return;
         applyStage(+e.key); // 0 resets to New, 1–4 set the stage (also un-ignores)
+        if (advUntracked) reopenCurrent(); // show the learning UI
         return;
       }
       if ((e.key === 'Enter' || e.key === 'ArrowRight') && !onButton) {
         const s = getStage(current.key);
         if (s === IGNORE_STAGE) applyStage(0);
-        else if (s < 4) applyStage(s + 1);
+        else if (isAdvancedMode(book.language) && s === 4) {
+          applyStage(0); // mark unknown (advanced mode)
+          if (advUntracked) reopenCurrent();
+        } else if (s < 4) applyStage(s + 1);
         return;
       }
       if (e.key === 'u' || e.key === 'U') {
+        if (advUntracked) return; // nothing to go back from
         const s = getStage(current.key);
         if (s > 0 && s !== IGNORE_STAGE) applyStage(s - 1);
         return;

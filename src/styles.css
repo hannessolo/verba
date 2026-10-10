@@ -77,6 +77,14 @@ button, select, a, label { touch-action: manipulation; }
 .btn.primary:hover { filter: brightness(1.08); }
 .btn.primary:disabled { opacity: 0.6; cursor: default; }
 .btn.ghost { background: transparent; }
+/* advanced-mode toggle: off = ghost, on = filled accent chip */
+.adv-toggle.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.side-card .adv-toggle { margin: 10px 0 6px; width: 100%; }
 .btn.icon {
   padding: 2px 8px;
   border: none;
@@ -546,6 +554,7 @@ button.wp-gt {
 .vocab-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 .vocab-title { margin: 0; font-size: 22px; }
 .vocab-counts { font-size: 13px; }
+.vocab-adv { margin: 0 0 14px; }
 .vocab-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
 .vocab-filter {
   border: 1px solid var(--line);
