@@ -20,6 +20,7 @@ import {
 import { loadDict, translate, translatePhrase } from '../lib/dict.js';
 import { tokenizeWithPhrases, phraseOccurrences, wordKeysInText } from '../lib/text.js';
 import { downloadData, importFromFile, importSummary } from '../lib/transfer.js';
+import { initVoices, speak, stop as stopSpeech, supported as ttsSupported } from '../lib/tts.js';
 
 const STAGE_NAMES = ['New', 'Saw it', 'Getting it', 'Almost known', 'Known'];
 const IGNORE_LABEL = 'Ignored';
@@ -130,7 +131,9 @@ export function renderReader(view, book) {
   // touch devices (phones/tablets): popup becomes a bottom sheet and stage
   // actions close it, so learning a word is a fast tap-tap loop
   const isTouch = matchMedia('(hover: none) and (pointer: coarse)').matches;
+  const ttsOk = ttsSupported();
   const dictPromise = loadDict(book.language);
+  if (ttsOk) initVoices();
   view.innerHTML = `
     <div class="reader-layout">
       <aside class="sidebar">
@@ -182,8 +185,8 @@ export function renderReader(view, book) {
             <b>Keyboard:</b> <b>⏎</b> opens the next word to learn. With a word
             open: <b>0–4</b> sets the stage, <b>⏎</b> advances, <b>u</b> goes
             back, <b>n</b> jumps to the next word, <b>i</b> ignores,
-            <b>t</b> opens Google Translate, <b>a</b> adds a translation,
-            <b>esc</b> closes.
+            <b>s</b> speaks it aloud, <b>t</b> opens Google Translate,
+            <b>a</b> adds a translation, <b>esc</b> closes.
           </p>
         </div>
       </aside>
@@ -202,6 +205,16 @@ export function renderReader(view, book) {
             <option value="1000">1000</option>
             <option value="0">Continuous</option>
           </select>
+          ${
+            ttsOk
+              ? `<label class="muted small" for="tts-rate">Voice</label>
+          <select id="tts-rate" title="Text-to-speech speed">
+            <option value="0.8">slow</option>
+            <option value="1">normal</option>
+            <option value="1.2">fast</option>
+          </select>`
+              : ''
+          }
           <button class="btn ghost" id="reader-export" title="Download all books, progress and learned words as a JSON file">⬇ Export</button>
           <button class="btn ghost" id="reader-import" title="Merge a previously exported JSON file into this library">⬆ Import</button>
           <input type="file" id="reader-import-input" accept=".json,application/json" hidden />
@@ -384,6 +397,16 @@ export function renderReader(view, book) {
     savePagePosition(book.id, pageIndex);
     scrollToText();
   });
+  // text-to-speech speed (0.8 / 1 / 1.2), persisted like the other settings
+  let ttsRate = settings.ttsRate ?? 1;
+  const ttsRateSelect = view.querySelector('#tts-rate');
+  if (ttsRateSelect) {
+    ttsRateSelect.value = String(ttsRate);
+    ttsRateSelect.addEventListener('change', () => {
+      ttsRate = Number(ttsRateSelect.value) || 1;
+      saveSettings({ ttsRate });
+    });
+  }
 
   // ---- advanced mode toggle (per language) ----
   const advBtn = view.querySelector('#adv-toggle');
@@ -427,6 +450,7 @@ export function renderReader(view, book) {
   // popup keeps working after a re-render detaches el.
   let current = null;
   function closePopup() {
+    stopSpeech(); // a closing popup (or a page turn that closes it) stops TTS
     if (popup) {
       popup.remove();
       popup = null;
@@ -827,6 +851,7 @@ export function renderReader(view, book) {
           ${result && result.stem ? `<span class="wp-stem">← ${esc(result.stem)}</span>` : ''}
         </span>
         <span class="wp-links">
+          ${ttsOk ? '<button class="wp-gt" id="wp-tts" type="button" title="Hear it (s)">🔊 speak</button>' : ''}
           ${!isPhrase && el ? '<button class="wp-gt" id="wp-sentence" type="button" title="Translate the whole sentence in Google Translate">⤢ sentence</button>' : ''}
           ${nextWordEl ? '<button class="wp-gt" id="wp-next-word" type="button" title="Add the next word to this selection">next +</button>' : ''}
           <a class="wp-gt" id="wp-gt" href="${gtUrl}" target="_blank" rel="noopener" title="Open in Google Translate">translate ↗</a>
@@ -865,14 +890,14 @@ export function renderReader(view, book) {
           ? `<div class="wp-hint muted small">Advanced mode: this word counts as known by default. Mark it <b>unknown</b> to start learning it — stages, colors and flashcards work as usual from there.</div>
       <div class="wp-keys">⏎ / 0 mark unknown · i ignore · t translate · a add trans · esc close</div>`
           : `${isPhrase ? '<div class="wp-hint muted small">Seen words merge into the text; set stage 0 to split them again.</div>' : ''}
-      <div class="wp-keys">0–4 stage · ⏎ advance · u back · n next · i ignore · t translate · a add trans · esc close</div>`
+      <div class="wp-keys">0–4 stage · ⏎ advance · u back · n next · i ignore · s speak · t translate · a add trans · esc close</div>`
       }`
           : `
       <div class="wp-actions">
         <button class="btn ghost" id="wp-close">Close (Esc)</button>
       </div>
       <div class="wp-hint muted small">This selection includes punctuation, so it can't be learned as one word — translate it in Google, or select only the words you want to learn.</div>
-      <div class="wp-keys">t translate · n next · esc close</div>`
+      <div class="wp-keys">s speak · t translate · n next · esc close</div>`
       }`;
     document.body.appendChild(popup);
     popupOpenWidth = innerWidth;
@@ -992,6 +1017,19 @@ export function renderReader(view, book) {
     }
     popup.querySelector('#wp-close').addEventListener('click', closePopup);
 
+    // "🔊 speak": read the word/phrase/sentence aloud in the book's language
+    // (browser-native Web Speech API; works offline with local OS voices)
+    const ttsBtn = popup.querySelector('#wp-tts');
+    if (ttsBtn)
+      ttsBtn.addEventListener('click', () => speak(current.text, book.language, ttsRate));
+
+    // Normal mode: selecting a word or phrase speaks it right away, so
+    // reading is a listen-while-learning loop (the button re-speaks; the
+    // ⤢ sentence popup is for translating and stays silent)
+    if (ttsOk && (el || selEls) && !isAdvancedMode(book.language)) {
+      speak(text, book.language, ttsRate);
+    }
+
     // "next +": extend the current selection by the following word without
     // moving it — the popup reopens on the extended span
     const nextBtn = popup.querySelector('#wp-next-word');
@@ -1046,6 +1084,11 @@ export function renderReader(view, book) {
       const learnable = isLearnableKey(current.key);
       if (e.key === 't' || e.key === 'T') {
         popup.querySelector('#wp-gt').click(); // opens Google Translate in a new tab
+        return;
+      }
+      if (e.key === 's' || e.key === 'S') {
+        const b = popup.querySelector('#wp-tts');
+        if (b) b.click(); // speaks the current word/phrase/sentence
         return;
       }
       if ((e.key === 'n' || e.key === 'N') && !onButton) {
@@ -1109,6 +1152,7 @@ export function renderReader(view, book) {
   window.addEventListener('resize', onResize);
 
   return () => {
+    stopSpeech();
     closePopup();
     document.removeEventListener('keydown', onKey);
     document.removeEventListener('click', onDocClick);

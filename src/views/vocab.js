@@ -1,5 +1,6 @@
 import { store, setStage, setSrs, srsState, parseScopedKey, IGNORE_STAGE, LANGS, LANG_NAMES, settings, saveSettings, isAdvancedMode } from '../lib/store.js';
 import { loadDict, translate, translatePhrase } from '../lib/dict.js';
+import { initVoices, speak, stop as stopSpeech, supported as ttsSupported } from '../lib/tts.js';
 
 const STAGE_NAMES = ['New', 'Saw it', 'Getting it', 'Almost known', 'Known'];
 
@@ -68,6 +69,9 @@ export function renderVocab(view) {
     ? settings.flashcardLang
     : 'all';
   let onKey = null;
+  // browser-native text-to-speech for flashcards (both directions)
+  const ttsOk = ttsSupported();
+  if (ttsOk) initVoices();
 
   // Languages the user actually has words for (in LANGS order). Legacy
   // unscoped keys (lang === null) only count toward "all".
@@ -216,8 +220,6 @@ export function renderVocab(view) {
     });
   }
 
-  // ---- flashcard session ----
-
   function pickWords(eligible, n) {
     const now = Date.now();
     const due = (s) => now - s.last > INTERVAL_MIN[s.step] * 60000;
@@ -270,6 +272,14 @@ export function renderVocab(view) {
     };
     const words = new Map(picked.map((w) => [w.key, w]));
 
+  // TTS language of a card side: the foreign side is spoken in the word's
+  // language, the translation side in English. Legacy unscoped words have no
+  // reliable target language and fall back to English.
+  const promptLang = (card, words) =>
+    card.prompt === words.get(card.word).word ? (words.get(card.word).lang || 'en') : 'en';
+  const answerLang = (card, words) =>
+    card.answer === words.get(card.word).word ? (words.get(card.word).lang || 'en') : 'en';
+
     const commit = (key) => {
       const rec = session.answers[key];
       if (rec.a && rec.b) {
@@ -297,6 +307,7 @@ export function renderVocab(view) {
     };
 
     const showCard = () => {
+      stopSpeech(); // a new card is a fresh start — the old one stays silent
       session.revealed = false;
       const card = session.cards[session.idx];
       const n = session.cards.length;
@@ -309,10 +320,16 @@ export function renderVocab(view) {
         </div>
         <div class="fc-card">
           <div class="fc-prompt">${esc(card.prompt)}</div>
+          ${ttsOk ? `<button class="btn ghost fc-tts" id="fc-tts-prompt" type="button" title="Hear it">🔊 Hear it</button>` : ''}
           <button class="btn primary fc-show" id="fc-show">Show answer</button>
         </div>
       </section>`;
       view.querySelector('#fc-show').addEventListener('click', () => reveal());
+      const tts1 = view.querySelector('#fc-tts-prompt');
+      if (tts1)
+        tts1.addEventListener('click', () =>
+          speak(card.prompt, promptLang(session.cards[session.idx], words), settings.ttsRate ?? 1)
+        );
     };
 
     const reveal = () => {
@@ -322,7 +339,9 @@ export function renderVocab(view) {
       const cardEl = view.querySelector('.fc-card');
       cardEl.innerHTML = `
         <div class="fc-prompt">${esc(card.prompt)}</div>
+        ${ttsOk ? `<button class="btn ghost fc-tts" id="fc-tts-prompt" type="button" title="Hear it">🔊 Hear it</button>` : ''}
         <div class="fc-answer">${esc(card.answer)}</div>
+        ${ttsOk ? `<button class="btn ghost fc-tts" id="fc-tts-answer" type="button" title="Hear the answer">🔊 Hear it</button>` : ''}
         <div class="fc-word muted small">${esc(words.get(card.word).word)}</div>
         <div class="fc-buttons">
           <button class="btn ghost" id="fc-miss">✗ Didn't know</button>
@@ -330,9 +349,20 @@ export function renderVocab(view) {
         </div>`;
       view.querySelector('#fc-miss').addEventListener('click', () => answer(false));
       view.querySelector('#fc-hit').addEventListener('click', () => answer(true));
+      const tts1 = view.querySelector('#fc-tts-prompt');
+      if (tts1)
+        tts1.addEventListener('click', () =>
+          speak(card.prompt, promptLang(card, words), settings.ttsRate ?? 1)
+        );
+      const tts2 = view.querySelector('#fc-tts-answer');
+      if (tts2)
+        tts2.addEventListener('click', () =>
+          speak(card.answer, answerLang(card, words), settings.ttsRate ?? 1)
+        );
     };
 
     const showSummary = () => {
+      stopSpeech();
       session.over = true;
       setKeyHandler(null);
       const wordsInSession = words.size;
@@ -353,6 +383,7 @@ export function renderVocab(view) {
     // second card was answered, so abandoning just returns to the list.
     const abandon = () => {
       if (session.over) return;
+      stopSpeech();
       session.over = true;
       renderList();
     };
@@ -379,6 +410,7 @@ export function renderVocab(view) {
   renderList();
 
   return () => {
+    stopSpeech();
     setKeyHandler(null);
   };
 }

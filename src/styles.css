@@ -647,6 +647,7 @@ button.wp-gt {
 }
 .fc-answer { color: var(--accent); font-size: 22px; font-weight: 600; margin-bottom: 6px; }
 .fc-word { font-size: 13px; margin-bottom: 24px; }
+.fc-tts { display: inline-block; margin: -14px auto 18px; padding: 5px 14px; font-size: 13px; min-height: 34px; }
 .fc-buttons { display: flex; gap: 12px; justify-content: center; }
 .fc-buttons .btn { flex: 1; min-height: 44px; padding: 10px 22px; font-size: 15px; }
 .fc-summary h2 { margin: 0 0 8px; font-size: 20px; }

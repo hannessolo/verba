@@ -34,11 +34,23 @@ server, no accounts.
   or continuous), with prev/next buttons, ←/→ arrow-key navigation, chapter
   headings starting a fresh page, and the reading position remembered per
   book.
+- **Text-to-speech (no API).** Uses the browser-native Web Speech API
+  (`speechSynthesis`) — no network, no API key; the voices are the ones
+  installed on the device (macOS/Windows system voices, Apple voices on iOS,
+  Google TTS on Android), and local voices keep it working offline. In normal
+  mode a word or phrase is spoken as soon as you select it; the popup's
+  <b>🔊 speak</b> button (or <b>s</b>) re-speaks it — and reads whole sentences
+  opened via <b>⤢ sentence</b>. A Voice speed select (slow/normal/fast) is
+  persisted, and flashcards get <b>🔊 Hear it</b> on both sides (the word in
+  its language, the translation in English). Speech stops when the popup
+  closes, the page turns, or you navigate away. Advanced mode does not
+  auto-speak (mark-unknown stays silent); the button still works.
 - **Keyboard navigation.** Press <b>⏎</b> to open the next word to learn
   (lowest stage, reading order). With a word open: <b>0–4</b> sets the stage
   directly, <b>⏎</b>/<b>→</b> advances it, <b>u</b> steps it back,
-  <b>n</b> jumps to the next word, <b>i</b> toggles ignore, <b>esc</b>
-  closes.
+  <b>n</b> jumps to the next word, <b>i</b> toggles ignore, <b>s</b> speaks
+  the word aloud, <b>t</b> opens Google Translate, <b>a</b> adds a
+  translation, <b>esc</b> closes.
 
 ## Getting started
 
