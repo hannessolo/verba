@@ -381,8 +381,10 @@ select {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 10px;
+  gap: 6px 10px;
+  flex-wrap: wrap; /* long word + all four links: wrap instead of overflowing */
 }
+.wp-word > span { min-width: 0; }
 .wp-gt {
   font-size: 12px;
   font-weight: 600;
@@ -392,12 +394,13 @@ select {
   flex-shrink: 0;
 }
 .wp-gt:hover { color: var(--accent); text-decoration: underline; }
-/* header link row: "⤢ sentence" button + "translate ↗" link */
+/* header link row: "🔊 speak" + "⤢ sentence" button + "next +" + "translate ↗" */
 .wp-links {
   display: inline-flex;
   align-items: baseline;
   gap: 10px;
   flex-shrink: 0;
+  flex-wrap: wrap; /* even the link row alone can exceed a narrow popup */
 }
 button.wp-gt {
   background: none;
