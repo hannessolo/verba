@@ -32,8 +32,8 @@ frameworks. Books, progress, review schedules and imported Anki decks live in
   reading vocabulary is tested in both directions.
 - **Anki exchange.** Import and export standard `.apkg` decks, including card
   due dates and review ease/interval data where available. Imported decks
-  support basic front/back text cards; arbitrary Anki templates and media are
-  not imported.
+  support basic front/back cards and common vocabulary fields such as
+  Word/English; image, audio, and other unsupported card templates are skipped.
 - **Ignore words.** Words you don't want to learn (e.g. proper names) can be
   ignored from the word popup. Ignored words are not highlighted (they keep a
   faint dotted underline), are excluded from progress totals, and can be

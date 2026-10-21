@@ -73,12 +73,32 @@ function reviewStateFromAnki(card, createdAt, lastReviewed) {
 
 function fieldIndexes(model) {
   const fields = Array.isArray(model?.flds) ? model.flds : [];
-  const front = fields.findIndex((field) => String(field.name).toLowerCase() === 'front');
-  const back = fields.findIndex((field) => String(field.name).toLowerCase() === 'back');
+  const names = fields.map((field) => String(field.name || '').trim().toLowerCase());
+  const find = (aliases) => names.findIndex((name) => aliases.includes(name));
+  let front = find(['front', 'word', 'french', 'target', 'term', 'expression', 'question', 'prompt']);
+  let back = find(['back', 'english', 'translation', 'meaning', 'definition', 'answer', 'gloss']);
+  if (front < 0) front = 0;
+  if (back < 0) {
+    back = names.findIndex((name, index) =>
+      index !== front && !/(picture|image|photo|audio|sound|recording)/i.test(name)
+    );
+  }
   return {
-    front: front >= 0 ? front : 0,
-    back: back >= 0 ? back : (fields.length > 1 ? 1 : -1),
+    front,
+    back: back === front ? -1 : back,
+    frontName: names[front],
+    backName: names[back],
   };
+}
+
+function templateFields(template, model) {
+  const references = [...String(template || '').matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)]
+    .map(([, expression]) =>
+      expression.trim().replace(/^[#/^]\s*/, '').split(':').at(-1).trim().toLowerCase()
+    );
+  return (Array.isArray(model?.flds) ? model.flds : [])
+    .map((field) => String(field.name || '').trim().toLowerCase())
+    .filter((name) => references.includes(name));
 }
 
 export async function importAnkiPackage(file) {
@@ -134,14 +154,18 @@ export async function importAnkiPackage(file) {
       let front = plainText(fields[indexes.front]);
       let back = plainText(fields[indexes.back]);
       const template = Array.isArray(model.tmpls) ? model.tmpls[Number(card.ord)] : null;
-      if (
-        template &&
-        /\{\{\s*Back\s*\}\}/i.test(template.qfmt || '') &&
-        !/\{\{\s*Front\s*\}\}/i.test(template.qfmt || '')
-      ) {
-        [front, back] = [back, front];
+      if (template) {
+        const referenced = templateFields(template.qfmt, model);
+        const usesFront = referenced.includes(indexes.frontName);
+        const usesBack = referenced.includes(indexes.backName);
+        if ((!usesFront && !usesBack) ||
+          (!usesFront && referenced.some((name) => name !== indexes.backName))) {
+          skipped++;
+          continue;
+        }
+        if (!usesFront && usesBack) [front, back] = [back, front];
       }
-      if (!front && !back) {
+      if (!front || !back) {
         skipped++;
         continue;
       }

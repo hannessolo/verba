@@ -51,6 +51,57 @@ async function fixtureDeck() {
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
+async function fixtureVocabularyDeck() {
+  const SQL = await initSqlJs();
+  const db = new SQL.Database();
+  const today = Math.floor(now / 86400000) * 86400000;
+  const model = {
+    id: 41,
+    name: 'French Vocabulary',
+    type: 0,
+    flds: [{ name: 'Word' }, { name: 'Picture' }, { name: 'English' }, { name: 'Recording' }],
+    tmpls: [
+      { name: 'Comprehension', qfmt: '{{Word}}' },
+      { name: 'Production', qfmt: '{{Picture}}<br>{{English}}' },
+      { name: 'Spelling', qfmt: '{{Recording}}<br>{{Picture}}' },
+    ],
+  };
+  db.run(`
+    CREATE TABLE col (crt integer, decks text, models text);
+    CREATE TABLE notes (id integer, mid integer, flds text);
+    CREATE TABLE cards (id integer, nid integer, did integer, ord integer, queue integer, due integer, ivl integer, factor integer, reps integer, lapses integer);
+    CREATE TABLE revlog (id integer, cid integer);
+  `);
+  const add = (sql, values) => {
+    const stmt = db.prepare(sql);
+    try { stmt.run(values); } finally { stmt.free(); }
+  };
+  add('INSERT INTO col VALUES (?, ?, ?)', [
+    Math.floor(today / 1000),
+    JSON.stringify({ 31: { id: 31, name: 'Essential French' } }),
+    JSON.stringify({ 41: model }),
+  ]);
+  add('INSERT INTO notes VALUES (?, ?, ?)', [
+    21, 41, 'Acteur\x1f<img src="acteur.jpg" />\x1fActor\x1f[sound:acteur.mp3]',
+  ]);
+  add('INSERT INTO notes VALUES (?, ?, ?)', [
+    22, 41, 'Sans traduction\x1f<img src="sans-traduction.jpg" />\x1f\x1f[sound:sans-traduction.mp3]',
+  ]);
+  for (let ord = 0; ord < 3; ord++) {
+    add('INSERT INTO cards VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+      11 + ord, 21, 31, ord, 0, 1, 0, 2500, 0, 0,
+    ]);
+    add('INSERT INTO cards VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+      14 + ord, 22, 31, ord, 0, 2, 0, 2500, 0, 0,
+    ]);
+  }
+  const zip = new JSZip();
+  zip.file('collection.anki2', db.export());
+  zip.file('media', '{}');
+  db.close();
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
 async function inspectPackage(bytes) {
   const zip = await JSZip.loadAsync(bytes);
   const collection = zip.file('collection.anki2');
@@ -188,6 +239,28 @@ try {
     importedPackage.cards[0][2] === -10 &&
     importedPackage.cards[0][4] === 5 &&
     importedPackage.cards[0][5] === 2);
+
+  await page.locator('#deck-back').click();
+  await page.locator('#anki-file').setInputFiles({
+    name: 'essential-french.apkg',
+    mimeType: 'application/zip',
+    buffer: await fixtureVocabularyDeck(),
+  });
+  await page.waitForFunction(() => document.querySelector('#deck-status')?.textContent.includes('Imported 1 deck'));
+  const vocabularyImportStatus = await page.locator('#deck-status').textContent();
+  const vocabularyDeck = page.locator('.deck-card[data-deck-id^="anki-"]').last();
+  await vocabularyDeck.locator('[data-deck-action="details"]').click();
+  const vocabularyCards = page.locator('.anki-card-row');
+  const vocabularyCardText = await vocabularyCards.first().innerText();
+  report('imports Word/English vocabulary fields and skips image/audio templates',
+    await vocabularyCards.count() === 1 &&
+    vocabularyCardText.includes('Acteur') &&
+    vocabularyCardText.includes('Actor') &&
+    !vocabularyCardText.includes('—') &&
+    vocabularyImportStatus.includes('Skipped 5 unsupported cards'));
+  await page.locator('#deck-back').click();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('.deck-card[data-deck-id^="anki-"]').last().locator('[data-deck-action="remove"]').click();
 
   await page.evaluate(() => {
     localStorage.setItem('verba/review/v1', '{}');
