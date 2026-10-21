@@ -7,7 +7,7 @@
 //    cache-first; they are content-hashed and immutable, and the
 //    ~8MB dictionaries are cached on first use instead of precached
 
-const VERSION = 'v5';
+const VERSION = 'v6';
 const CORE_CACHE = `verba-core-${VERSION}`;
 const RUNTIME_CACHE = `verba-runtime-${VERSION}`;
 
