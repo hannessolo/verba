@@ -37,5 +37,8 @@ export function importSummary(stats) {
   if (stats.wordsAdvanced) parts.push(`${stats.wordsAdvanced} word${stats.wordsAdvanced === 1 ? '' : 's'} advanced`);
   if (stats.translationsAdded) parts.push(`${stats.translationsAdded} new translation${stats.translationsAdded === 1 ? '' : 's'} added`);
   if (stats.srsUpdated) parts.push(`${stats.srsUpdated} review stat${stats.srsUpdated === 1 ? '' : 's'} updated`);
+  if (stats.decksAdded) parts.push(`${stats.decksAdded} Anki deck${stats.decksAdded === 1 ? '' : 's'} added`);
+  if (stats.cardsAdded) parts.push(`${stats.cardsAdded} Anki card${stats.cardsAdded === 1 ? '' : 's'} added`);
+  if (stats.reviewUpdated) parts.push(`${stats.reviewUpdated} review schedule${stats.reviewUpdated === 1 ? '' : 's'} updated`);
   return parts.length ? `Import complete — ${parts.join(', ')}.` : 'Import complete — nothing new to import.';
 }

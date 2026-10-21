@@ -39,6 +39,8 @@ const PAGES_KEY = 'verba/pages/v1';
 const SETTINGS_KEY = 'verba/settings/v1';
 const TRANS_KEY = 'verba/translations/v1';
 const SRS_KEY = 'verba/srs/v1';
+const DECKS_KEY = 'verba/ankiDecks/v1';
+const REVIEW_KEY = 'verba/review/v1';
 
 function read(key, fallback) {
   try {
@@ -57,7 +59,28 @@ export const store = {
   translations: read(TRANS_KEY, {}),
   // word key -> spaced-repetition state { step: 0-6, last: epochMs }
   srs: read(SRS_KEY, {}),
+  // Imported Anki decks and per-card scheduling state for reading decks.
+  decks: read(DECKS_KEY, []),
+  review: read(REVIEW_KEY, {}),
 };
+if (!Array.isArray(store.decks)) store.decks = [];
+if (!store.review || typeof store.review !== 'object' || Array.isArray(store.review))
+  store.review = {};
+store.decks = store.decks
+  .filter((deck) => deck && typeof deck.id === 'string' && typeof deck.name === 'string' && Array.isArray(deck.cards))
+  .map((deck) => ({
+    ...deck,
+    cards: deck.cards.filter(
+      (card) =>
+        card &&
+        typeof card.id === 'string' &&
+        typeof card.front === 'string' &&
+        typeof card.back === 'string'
+    ),
+  }));
+for (const [key, state] of Object.entries(store.review)) {
+  if (!validReviewState(state)) delete store.review[key];
+}
 
 // One-time migration of the legacy (un-scoped) word keys to language-scoped
 // keys, using the user's books to work out each word's language. Idempotent:
@@ -342,18 +365,83 @@ export function setSrs(key, step, last) {
   saveSrs();
 }
 
+export function saveDecks() {
+  try {
+    localStorage.setItem(DECKS_KEY, JSON.stringify(store.decks));
+    return true;
+  } catch (e) {
+    console.error('failed to save Anki decks', e);
+    alert('Could not save the Anki deck — browser storage may be full. Export your data or remove a deck and try again.');
+    return false;
+  }
+}
+
+export function saveReview() {
+  try {
+    localStorage.setItem(REVIEW_KEY, JSON.stringify(store.review));
+    return true;
+  } catch (e) {
+    console.error('failed to save review schedule', e);
+    alert('Could not save the review schedule — browser storage may be full. Export your data or remove a deck and try again.');
+    return false;
+  }
+}
+
+export function reviewState(key) {
+  const s = store.review[key];
+  return s &&
+    Number.isFinite(s.due) &&
+    Number.isFinite(s.interval) &&
+    Number.isFinite(s.ease) &&
+    Number.isInteger(s.reps) &&
+    Number.isInteger(s.lapses) &&
+    Number.isFinite(s.last)
+    ? s
+    : null;
+}
+
+export function setReviewState(key, state) {
+  if (
+    !state ||
+    !Number.isFinite(state.due) ||
+    !Number.isFinite(state.interval) ||
+    !Number.isFinite(state.ease) ||
+    !Number.isInteger(state.reps) ||
+    !Number.isInteger(state.lapses) ||
+    !Number.isFinite(state.last)
+  ) {
+    throw new Error('Invalid review schedule.');
+  }
+  const previous = store.review[key];
+  store.review[key] = {
+    due: state.due,
+    interval: Math.max(0, state.interval),
+    ease: Math.max(1.3, state.ease),
+    reps: Math.max(0, state.reps),
+    lapses: Math.max(0, state.lapses),
+    last: state.last,
+  };
+  if (saveReview()) return true;
+  if (previous === undefined) delete store.review[key];
+  else store.review[key] = previous;
+  return false;
+}
+
 // ---- export / import ----
 
-// Serialize everything: books, word stages, reading positions, settings.
+// Serialize books, learning progress, Anki decks, review schedules, positions,
+// and local UI settings.
 export function exportSnapshot() {
   return {
     app: 'verba',
-    version: 2,
+    version: 3,
     exportedAt: new Date().toISOString(),
     books: store.books,
     stages: store.stages,
     translations: store.translations,
     srs: store.srs,
+    decks: store.decks,
+    review: store.review,
     pages: pagePositions,
     settings: { ...settings },
   };
@@ -368,6 +456,8 @@ export function exportSnapshot() {
 //    ignored, otherwise the more advanced learning stage wins.
 //  - custom translations: union of both lists (case-insensitive dedupe),
 //    import order first, then any local-only translations.
+//  - Anki decks: imported decks merge by deck/card id; later review schedules
+//    replace earlier ones.
 // Settings are exported but not applied on import (they are a local UI
 // preference, not learning progress).
 export function mergeImport(data) {
@@ -375,7 +465,16 @@ export function mergeImport(data) {
     throw new Error('Not a valid data file.');
   }
   const pages = data.pages && typeof data.pages === 'object' ? data.pages : {};
-  const stats = { booksAdded: 0, pagesMerged: 0, wordsAdvanced: 0, translationsAdded: 0, srsUpdated: 0 };
+  const stats = {
+    booksAdded: 0,
+    pagesMerged: 0,
+    wordsAdvanced: 0,
+    translationsAdded: 0,
+    srsUpdated: 0,
+    decksAdded: 0,
+    cardsAdded: 0,
+    reviewUpdated: 0,
+  };
 
   if (Array.isArray(data.books)) {
     let booksChanged = false;
@@ -477,7 +576,82 @@ export function mergeImport(data) {
     if (srsChanged) saveSrs();
   }
 
+  if (Array.isArray(data.decks)) {
+    let decksChanged = false;
+    for (const incoming of data.decks) {
+      if (
+        !incoming ||
+        typeof incoming.id !== 'string' ||
+        typeof incoming.name !== 'string' ||
+        !Array.isArray(incoming.cards)
+      ) continue;
+      let deck = store.decks.find((candidate) => candidate.id === incoming.id);
+      if (!deck) {
+        deck = {
+          id: incoming.id,
+          name: incoming.name,
+          createdAt: Number(incoming.createdAt) || Date.now(),
+          cards: [],
+        };
+        store.decks.push(deck);
+        stats.decksAdded++;
+        decksChanged = true;
+      }
+      for (const card of incoming.cards) {
+        if (
+          !card ||
+          typeof card.id !== 'string' ||
+          typeof card.front !== 'string' ||
+          typeof card.back !== 'string'
+        ) continue;
+        const local = deck.cards.find((candidate) => candidate.id === card.id);
+        if (!local) {
+          deck.cards.push({
+            id: card.id,
+            front: card.front,
+            back: card.back,
+            suspended: !!card.suspended,
+            ...(validReviewState(card.srs) ? { srs: { ...card.srs } } : {}),
+          });
+          stats.cardsAdded++;
+          decksChanged = true;
+        } else if (validReviewState(card.srs) && isLaterReview(card.srs, local.srs)) {
+          local.srs = { ...card.srs };
+          stats.reviewUpdated++;
+          decksChanged = true;
+        }
+      }
+    }
+    if (decksChanged && !saveDecks()) throw new Error('Could not save the imported decks.');
+  }
+
+  if (data.review && typeof data.review === 'object' && !Array.isArray(data.review)) {
+    let reviewChanged = false;
+    for (const [key, imported] of Object.entries(data.review)) {
+      const local = store.review[key];
+      if (!validReviewState(imported) || !isLaterReview(imported, local)) continue;
+      store.review[key] = { ...imported };
+      stats.reviewUpdated++;
+      reviewChanged = true;
+    }
+    if (reviewChanged && !saveReview()) throw new Error('Could not save the imported review schedule.');
+  }
+
   return stats;
+}
+
+function validReviewState(s) {
+  return !!s &&
+    Number.isFinite(s.due) &&
+    Number.isFinite(s.interval) &&
+    Number.isFinite(s.ease) &&
+    Number.isInteger(s.reps) &&
+    Number.isInteger(s.lapses) &&
+    Number.isFinite(s.last);
+}
+
+function isLaterReview(incoming, local) {
+  return validReviewState(incoming) && (!validReviewState(local) || incoming.last > local.last);
 }
 
 // ---- book stats ----

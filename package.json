@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "jszip": "^3.10.1",
-    "pako": "^3.0.1"
+    "pako": "^3.0.1",
+    "sql.js": "^1.15.1"
   },
   "devDependencies": {
     "playwright": "^1.63.0",
