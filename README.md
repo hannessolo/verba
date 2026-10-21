@@ -2,8 +2,8 @@
 
 A small reading app: read Italian, Spanish or French texts, and learn
 vocabulary one word at a time. Built with vanilla JavaScript + Vite, no
-frameworks. Books, progress, review schedules and imported Anki decks live in
-`localStorage` — no server, no accounts.
+frameworks. All data (books + word stages) lives in `localStorage` — no
+server, no accounts.
 
 ## Features
 
@@ -26,14 +26,6 @@ frameworks. Books, progress, review schedules and imported Anki decks live in
 - **Progress tracking.** Per-book counts per stage and % of unique words
   known. Word stages form a global word list shared across books.
   Everything persists in `localStorage` across sessions.
-- **Deck-based spaced repetition.** The vocabulary view shows one
-  “From reading” deck per language plus any imported Anki decks. Open a deck
-  to browse its cards or revise due cards with Again/Hard/Good/Easy ratings;
-  reading vocabulary is tested in both directions.
-- **Anki exchange.** Import and export standard `.apkg` decks, including card
-  due dates and review ease/interval data where available. Imported decks
-  support basic front/back cards and common vocabulary fields such as
-  Word/English; image, audio, and other unsupported card templates are skipped.
 - **Ignore words.** Words you don't want to learn (e.g. proper names) can be
   ignored from the word popup. Ignored words are not highlighted (they keep a
   faint dotted underline), are excluded from progress totals, and can be
@@ -113,8 +105,6 @@ src/
   lib/
     store.js      localStorage persistence (books + global word stages)
     dict.js       dictionary loader (pako inflate) + translate() w/ stemming
-    srs.js        per-card review intervals and Again/Hard/Good/Easy scheduling
-    anki.js       .apkg import/export via JSZip and SQL.js
     text.js       tokenization, language detection, HTML->paragraphs
     epub.js       minimal EPUB reader (JSZip + OPF spine walk)
   dict/           generated dictionary data (it-en.js, es-en.js)
@@ -129,6 +119,6 @@ src/
 - The EPUB reader is minimal: it reads the spine's XHTML items and drops
   images/nav; fixed-layout/complex EPUBs may extract imperfectly.
 - `localStorage` is limited to ~5 MB, so very large EPUBs (whole novels
-  with long text) or Anki decks may not fit.
+  with long text) may not fit; the app warns on overflow.
 - The language detector is a stopword heuristic; on short or unusual texts
   it asks you to pick the language.

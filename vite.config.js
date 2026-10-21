@@ -5,7 +5,4 @@ import { defineConfig } from 'vite';
 // so no server-side rewrites are needed either.
 export default defineConfig({
   base: './',
-  build: {
-    manifest: 'build-manifest.json',
-  },
 });

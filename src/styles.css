@@ -622,47 +622,10 @@ button.wp-gt {
 .vocab-gloss { margin-left: auto; color: var(--muted); font-size: 13px; text-align: right; }
 .vocab-custom { flex-basis: 100%; font-size: 12px; color: var(--muted); padding-left: 22px; }
 .vocab-custom .plus { color: var(--accent); }
-.deck-overview-head,
-.deck-details-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin-bottom: 20px;
-}
-.deck-overview-head p { margin: 6px 0 0; }
-.deck-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
-.deck-card {
-  min-width: 0;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: #fff;
-  padding: 18px;
-  box-shadow: 0 3px 12px rgba(40, 30, 10, 0.04);
-}
-.deck-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-.deck-kind { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
-.deck-card h3 { margin: 4px 0 0; font-size: 18px; overflow-wrap: anywhere; }
-.deck-card-count { margin: 12px 0 16px; color: var(--muted); font-size: 13px; }
-.deck-card-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.deck-card-actions .btn { flex: 1 1 auto; }
-.deck-status { min-height: 1.4em; margin: 14px 0 0; }
-.deck-details-title { flex: 1 1 220px; }
-.deck-details-title h2 { margin: 4px 0 2px; overflow-wrap: anywhere; }
-.deck-details-head > .btn { align-self: flex-start; }
-.deck-detail-filters { margin-top: 18px; }
-.vocab-details-list { margin-top: 4px; }
-.anki-card-list { margin-top: 18px; }
-.anki-card-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); padding: 14px 0; }
-.anki-card-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; flex: 1; min-width: 0; }
-.anki-card-fields > div { min-width: 0; overflow-wrap: anywhere; }
-.anki-field-label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
-.anki-card-meta { display: flex; align-items: center; gap: 8px; flex: none; }
 
 /* ---------- flashcards ---------- */
 .flashcards { max-width: 640px; margin: 0 auto; padding: 40px 20px 80px; }
-.fc-top { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; flex-wrap: wrap; }
+.fc-top { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }
 .fc-progress { font-size: 13px; color: var(--muted); white-space: nowrap; }
 .fc-lang-badge {
   font-size: 11px;
@@ -688,9 +651,6 @@ button.wp-gt {
 .fc-answer { color: var(--accent); font-size: 22px; font-weight: 600; margin-bottom: 6px; }
 .fc-word { font-size: 13px; margin-bottom: 24px; }
 .fc-tts { display: inline-block; margin: -14px auto 18px; padding: 5px 14px; font-size: 13px; min-height: 34px; }
-.fc-ratings { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 22px; }
-.fc-ratings .btn { display: flex; flex-direction: column; align-items: center; gap: 3px; min-height: 52px; }
-.fc-ratings small { color: inherit; opacity: 0.72; font-size: 11px; }
 .fc-buttons { display: flex; gap: 12px; justify-content: center; }
 .fc-buttons .btn { flex: 1; min-height: 44px; padding: 10px 22px; font-size: 15px; }
 .fc-summary h2 { margin: 0 0 8px; font-size: 20px; }
@@ -700,15 +660,6 @@ button.wp-gt {
 @media (max-width: 560px) {
   .vocab { padding: 20px 14px 60px; }
   .vocab-gloss { margin-left: 0; flex-basis: 100%; text-align: left; }
-  .deck-grid { grid-template-columns: 1fr; }
-  .deck-overview-head { align-items: flex-start; }
-  .deck-card-actions { display: grid; grid-template-columns: 1fr 1fr; }
-  .deck-card-actions [data-deck-action="export"] { grid-column: 1 / -1; }
-  .deck-details-head { align-items: flex-start; }
-  .deck-details-head .deck-card-actions { width: 100%; }
-  .anki-card-row { align-items: flex-start; flex-direction: column; }
-  .anki-card-fields { width: 100%; grid-template-columns: 1fr; gap: 10px; }
-  .fc-ratings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .fc-buttons { flex-direction: column; }
   .fc-buttons .btn { width: 100%; min-height: 48px; }
   .fc-progress { font-size: 13px; }

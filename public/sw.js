@@ -7,7 +7,7 @@
 //    cache-first; they are content-hashed and immutable, and the
 //    ~8MB dictionaries are cached on first use instead of precached
 
-const VERSION = 'v7';
+const VERSION = 'v4';
 const CORE_CACHE = `verba-core-${VERSION}`;
 const RUNTIME_CACHE = `verba-runtime-${VERSION}`;
 
@@ -44,39 +44,6 @@ self.addEventListener('install', (e) => {
             if (res.ok) c.put(path, res);
           })
       );
-      // Anki package support is lazy-loaded to keep the initial app bundle
-      // small. Cache its module graph during installation so it also works
-      // the first time an installed PWA imports a deck while offline.
-      try {
-        const manifestRes = await fetch('./build-manifest.json');
-        if (manifestRes.ok) {
-          const manifest = await manifestRes.json();
-          const ankiKey = 'src/lib/anki.js';
-          if (manifest[ankiKey]) {
-            const pending = [ankiKey];
-            const files = new Set();
-            while (pending.length) {
-              const key = pending.pop();
-              const entry = manifest[key];
-              if (!entry) continue;
-              if (entry.file && /\.js$/i.test(entry.file)) files.add(entry.file);
-              for (const asset of entry.assets || [])
-                if (/\.wasm$/i.test(asset)) files.add(asset);
-              for (const dependency of entry.imports || []) pending.push(dependency);
-            }
-            await Promise.all(
-              [...files].map(async (file) => {
-                const path = `./${file}`;
-                const res = await fetch(path);
-                if (!res.ok) throw new Error(`Could not cache Anki module: ${path}`);
-                await c.put(path, res);
-              })
-            );
-          }
-        }
-      } catch (error) {
-        console.warn('Anki module was not precached for offline use', error);
-      }
       await self.skipWaiting();
     })()
   );
