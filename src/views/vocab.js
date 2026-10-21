@@ -84,8 +84,7 @@ function dueCards(deck) {
 
 function readingItems(entries) {
   const now = Date.now();
-  return entries
-    .filter((entry) => entry.english && readingEntryDue(entry, now))
+  return shuffle(entries.filter((entry) => entry.english && readingEntryDue(entry, now)))
     .sort((a, b) => {
       const aStates = DIRECTION_KEYS.map((direction) => readReviewState(a, direction));
       const bStates = DIRECTION_KEYS.map((direction) => readReviewState(b, direction));
@@ -102,8 +101,9 @@ function readingItems(entries) {
 }
 
 function importedItems(deck) {
-  return deck.cards
-    .filter((card) => !card.suspended && isReviewDue(normalizeReviewState(card.srs)))
+  return shuffle(deck.cards.filter((card) =>
+    !card.suspended && isReviewDue(normalizeReviewState(card.srs))
+  ))
     .sort((a, b) => {
       const aState = normalizeReviewState(a.srs);
       const bState = normalizeReviewState(b.srs);

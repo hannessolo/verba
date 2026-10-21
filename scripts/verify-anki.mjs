@@ -81,18 +81,26 @@ async function fixtureVocabularyDeck() {
     JSON.stringify({ 31: { id: 31, name: 'Essential French' } }),
     JSON.stringify({ 41: model }),
   ]);
+  const words = ['Acteur', 'Balise', 'Cabane', 'Dauphin', 'Etage', 'Fenetre', 'Garage', 'Humeur', 'Image', 'Jardin', 'Kangourou', 'Zulu'];
+  for (let index = 0; index < words.length; index++) {
+    const word = words[index];
+    const noteId = 21 + index;
+    add('INSERT INTO notes VALUES (?, ?, ?)', [
+      noteId, 41, `${word}\x1f<img src="${word}.jpg" />\x1f${index ? `Meaning ${word}` : 'Actor'}\x1f[sound:${word}.mp3]`,
+    ]);
+    for (let ord = 0; ord < 3; ord++) {
+      add('INSERT INTO cards VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+        100 + index * 3 + ord, noteId, 31, ord, 0, index + 1, 0, 2500, 0, 0,
+      ]);
+    }
+  }
+  const blankNoteId = 21 + words.length;
   add('INSERT INTO notes VALUES (?, ?, ?)', [
-    21, 41, 'Acteur\x1f<img src="acteur.jpg" />\x1fActor\x1f[sound:acteur.mp3]',
-  ]);
-  add('INSERT INTO notes VALUES (?, ?, ?)', [
-    22, 41, 'Sans traduction\x1f<img src="sans-traduction.jpg" />\x1f\x1f[sound:sans-traduction.mp3]',
+    blankNoteId, 41, 'Sans traduction\x1f<img src="sans-traduction.jpg" />\x1f\x1f[sound:sans-traduction.mp3]',
   ]);
   for (let ord = 0; ord < 3; ord++) {
     add('INSERT INTO cards VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
-      11 + ord, 21, 31, ord, 0, 1, 0, 2500, 0, 0,
-    ]);
-    add('INSERT INTO cards VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
-      14 + ord, 22, 31, ord, 0, 2, 0, 2500, 0, 0,
+      200 + ord, blankNoteId, 31, ord, 0, words.length + 1, 0, 2500, 0, 0,
     ]);
   }
   const zip = new JSZip();
@@ -253,11 +261,30 @@ try {
   const vocabularyCards = page.locator('.anki-card-row');
   const vocabularyCardText = await vocabularyCards.first().innerText();
   report('imports Word/English vocabulary fields and skips image/audio templates',
-    await vocabularyCards.count() === 1 &&
+    await vocabularyCards.count() === 12 &&
     vocabularyCardText.includes('Acteur') &&
     vocabularyCardText.includes('Actor') &&
     !vocabularyCardText.includes('—') &&
-    vocabularyImportStatus.includes('Skipped 5 unsupported cards'));
+    vocabularyImportStatus.includes('Skipped 27 unsupported cards'));
+  await page.evaluate(() => {
+    window.__originalRandom = Math.random;
+    Math.random = () => 0.5;
+  });
+  await page.locator('#deck-revise').click();
+  await page.evaluate(() => {
+    Math.random = window.__originalRandom;
+    delete window.__originalRandom;
+  });
+  const sampledPrompts = [];
+  for (let index = 0; index < 10; index++) {
+    sampledPrompts.push((await page.locator('.fc-prompt').textContent()).trim());
+    await page.locator('#fc-show').click();
+    await page.locator('[data-rating="good"]').click();
+  }
+  await page.waitForSelector('#fc-back');
+  report('revision randomizes before taking the ten-card batch',
+    sampledPrompts.length === 10 && sampledPrompts.includes('Zulu'));
+  await page.locator('#fc-back').click();
   await page.locator('#deck-back').click();
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('.deck-card[data-deck-id^="anki-"]').last().locator('[data-deck-action="remove"]').click();
